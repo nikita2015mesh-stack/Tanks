@@ -18,9 +18,12 @@ namespace MadMachines
         [SerializeField] private float grip = 7f;
         [SerializeField] private float suspensionLength = 0.65f;
         [SerializeField] private float wheelRadius = 0.43f;
-        [SerializeField] private Transform[] wheels;
+        // Legacy scene references; new geometry is bound by VehicleVisuals.
+        [SerializeField, HideInInspector] private Transform[] wheels;
         private readonly Vector3[] mounts = { new Vector3(-1.05f, 0f, 1.25f), new Vector3(1.05f, 0f, 1.25f), new Vector3(-1.05f, 0f, -1.25f), new Vector3(1.05f, 0f, -1.25f) };
         private Rigidbody body;
+        private readonly Vector3[] wheelPositions = new Vector3[4];
+        private readonly float[] wheelSteering = new float[4];
         private VehicleCommand command;
         public bool Authority { get; set; } = true;
         public Rigidbody Body => body != null ? body : body = GetComponent<Rigidbody>();
@@ -30,17 +33,31 @@ namespace MadMachines
         private void Awake()
         {
             Body.centerOfMass = new Vector3(0f, -0.35f, 0f);
+            for (int i = 0; i < mounts.Length; i++)
+                wheelPositions[i] = mounts[i] - Vector3.up * suspensionLength;
+            // Compatibility with scenes that still serialize the original wheel meshes.
+            if (GetComponentInChildren<VehicleVisuals>(true) == null && wheels != null && wheels.Length > 0)
+                gameObject.AddComponent<VehicleVisuals>().Configure(this, null, wheels);
         }
 
-        public void Configure(Transform[] visualWheels)
+        public void Configure(Transform[] visualWheels = null)
         {
             wheels = visualWheels;
+            if (visualWheels != null)
+            {
+                VehicleVisuals visuals = GetComponentInChildren<VehicleVisuals>(true);
+                if (visuals == null) visuals = gameObject.AddComponent<VehicleVisuals>();
+                visuals.Configure(this, null, visualWheels);
+            }
             Body.mass = 850f;
             Body.centerOfMass = new Vector3(0f, -0.35f, 0f);
             Body.interpolation = RigidbodyInterpolation.Interpolate;
             Body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             Body.angularDamping = 0.9f;
         }
+
+        public Vector3 GetWheelPosition(int index) => wheelPositions[index];
+        public float GetWheelSteering(int index) => wheelSteering[index];
 
         public void Submit(VehicleCommand value)
         {
@@ -74,11 +91,8 @@ namespace MadMachines
                     Body.AddForceAtPosition(forward * drive, hit.point);
                     Body.AddForceAtPosition(-forward * forwardSpeed * 45f, hit.point);
                 }
-                if (wheels != null && i < wheels.Length)
-                {
-                    wheels[i].localPosition = mounts[i] - Vector3.up * extension;
-                    wheels[i].localRotation = Quaternion.Euler(0f, i < 2 ? command.Steering * 28f : 0f, 90f);
-                }
+                wheelPositions[i] = mounts[i] - Vector3.up * extension;
+                wheelSteering[i] = i < 2 ? command.Steering * 28f : 0f;
             }
             Body.AddForce(-Body.linearVelocity * Body.linearVelocity.magnitude * 0.7f);
         }

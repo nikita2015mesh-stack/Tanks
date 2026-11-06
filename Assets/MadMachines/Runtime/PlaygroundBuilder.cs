@@ -126,19 +126,30 @@ namespace MadMachines
             car.transform.SetParent(root);
             car.transform.position = new Vector3(0, 1.5f, -42);
             car.layer = 2;
+            Transform visualRoot = new GameObject("Vehicle visuals").transform;
+            visualRoot.SetParent(car.transform, false);
+            Transform bodyRoot = new GameObject("Body visuals").transform;
+            bodyRoot.SetParent(visualRoot, false);
             GameObject hull = Box("Armoured tub", car.transform.position, new Vector3(1.9f, 0.65f, 3.3f), Teal, car.transform);
             hull.layer = 2;
             GameObject nose = Box("Orange bonnet", car.transform.position + new Vector3(0, 0.45f, 0.85f), new Vector3(1.7f, 0.4f, 1.2f), Orange, car.transform);
             nose.layer = 2;
             GameObject cab = Box("Driver cage", car.transform.position + new Vector3(0, 0.6f, -0.8f), new Vector3(1.4f, 0.75f, 1.2f), Road, car.transform);
             cab.layer = 2;
+            SeparateBodyVisual(hull, bodyRoot);
+            SeparateBodyVisual(nose, bodyRoot);
+            SeparateBodyVisual(cab, bodyRoot);
             Transform[] wheels = new Transform[4];
             for (int i = 0; i < 4; i++)
             {
                 GameObject wheel = Shape(PrimitiveType.Cylinder, "Suspended wheel " + i, car.transform.position, new Vector3(0.86f, 0.25f, 0.86f), new Color(0.055f, 0.07f, 0.085f), car.transform);
                 wheel.layer = 2;
                 RemoveCollider(wheel);
-                wheels[i] = wheel.transform;
+                Transform anchor = new GameObject("Wheel anchor " + i).transform;
+                anchor.SetParent(visualRoot, false);
+                wheel.transform.SetParent(anchor, false);
+                wheel.transform.localPosition = Vector3.zero;
+                wheels[i] = anchor;
             }
             GameObject turret = Shape(PrimitiveType.Cylinder, "Weapon mount", car.transform.position + Vector3.up * 0.9f, new Vector3(1, 0.25f, 1), Orange, car.transform);
             turret.layer = 2;
@@ -157,9 +168,24 @@ namespace MadMachines
             muzzle.transform.SetParent(barrel.transform, false);
             muzzle.transform.localPosition = new Vector3(0, 0, 2.2f);
             VehiclePhysics physics = car.AddComponent<VehiclePhysics>();
-            physics.Configure(wheels);
+            physics.Configure();
+            visualRoot.gameObject.AddComponent<VehicleVisuals>().Configure(physics, bodyRoot, wheels);
             car.AddComponent<WeaponSystem>().Configure(physics, mount.transform, barrel.transform, muzzle.transform, weapons);
             return physics;
+        }
+
+        private static void SeparateBodyVisual(GameObject colliderObject, Transform bodyRoot)
+        {
+            GameObject geometry = new GameObject(colliderObject.name + " geometry");
+            geometry.layer = colliderObject.layer;
+            geometry.transform.SetParent(bodyRoot, false);
+            geometry.transform.localPosition = colliderObject.transform.localPosition;
+            geometry.transform.localRotation = colliderObject.transform.localRotation;
+            geometry.transform.localScale = colliderObject.transform.localScale;
+            geometry.AddComponent<MeshFilter>().sharedMesh = colliderObject.GetComponent<MeshFilter>().sharedMesh;
+            MeshRenderer renderer = colliderObject.GetComponent<MeshRenderer>();
+            geometry.AddComponent<MeshRenderer>().sharedMaterials = renderer.sharedMaterials;
+            renderer.enabled = false;
         }
 
         private static void RemoveCollider(GameObject target)
