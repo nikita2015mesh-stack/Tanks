@@ -11,6 +11,7 @@ namespace MadMachines
         [SerializeField] private ChallengeManager rules;
         public bool Paused { get; private set; }
         public bool Menu { get; private set; } = true;
+        public bool AimMode => view.AimMode;
 
         public void Configure(VehiclePhysics car, WeaponSystem gun, VehicleCamera camera, ChallengeManager session)
         {
@@ -70,6 +71,7 @@ namespace MadMachines
                 SetCursor();
                 return;
             }
+            if (keyboard.cKey.wasPressedThisFrame) view.ToggleAimMode();
             view.Look(mouse.delta.ReadValue());
             weapons.Aim(view.AimDirection);
             if (rules.Phase == SessionPhase.Countdown) return;

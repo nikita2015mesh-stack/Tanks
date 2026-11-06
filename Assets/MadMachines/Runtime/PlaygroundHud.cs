@@ -82,7 +82,7 @@ namespace MadMachines
                     GUILayout.Space(14);
                     GUILayout.Label("Гонка — проезжайте зелёные ворота по порядку. Восстановление добавляет 3 с.\nСтрелковый полигон — 60 с на красные цели. Движущиеся цели дают вдвое больше очков.\nБоевая трасса — каждая оставшаяся цель добавляет 8 с, а каждый промах — 0,25 с.", small);
                     GUILayout.Space(14);
-                    GUILayout.Label("WASD — езда  •  Пробел — занос\nМышь — прицел  •  ЛКМ — огонь  •  1/2/3 — оружие\nR — восстановление  •  Esc — пауза", text);
+                    GUILayout.Label("WASD — езда  •  Пробел — занос\nМышь — прицел  •  ЛКМ — огонь  •  1/2/3 — оружие\nC — смена вида  •  R — восстановление  •  Esc — пауза", text);
                 }
                 GUILayout.EndArea();
                 return;
@@ -96,6 +96,7 @@ namespace MadMachines
             GUI.Label(new Rect(35, 94, 340, 50), $"{vehicle.Speed:0} км/ч   •   {weapons.Current.Label}", text);
             GUI.Box(new Rect(20, height - 78, 355, 58), "");
             GUI.Label(new Rect(35, height - 71, 335, 25), weapons.Reload > 0f ? "ПЕРЕЗАРЯДКА" : "МОЖНО СТРЕЛЯТЬ", small);
+            GUI.Label(new Rect(185, height - 71, 180, 25), input.AimMode ? "C — ПРИЦЕЛЬНЫЙ ВИД" : "C — ТРЕТЬЕ ЛИЦО", small);
             GUI.color = new Color(0.3f, 1f, 0.65f);
             GUI.DrawTexture(new Rect(35, height - 40, 320 * (1f - weapons.Reload), 6), Texture2D.whiteTexture);
             GUI.color = Color.white;
