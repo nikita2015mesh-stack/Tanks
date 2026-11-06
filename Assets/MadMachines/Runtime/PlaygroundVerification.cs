@@ -43,7 +43,9 @@ namespace MadMachines
             rules.Recover();
             yield return new WaitForSeconds(1);
             Check(Vector3.Dot(car.transform.up, Vector3.up) > 0.98f && car.Body.linearVelocity.magnitude < 2, "Recovery resets overturned chassis");
-            Target target = FindAnyObjectByType<Target>();
+            // Use the fixed target in a clear lane; a random moving target makes this
+            // collision test depend on its current motion phase and intervening props.
+            Target target = GameObject.Find("Target 1").GetComponent<Target>();
             Vector3 targetPosition = target.transform.position;
             car.Recover(targetPosition + new Vector3(0, -0.5f, -9), Quaternion.identity);
             yield return new WaitForSeconds(0.2f);
