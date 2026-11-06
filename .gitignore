@@ -1,0 +1,18 @@
+# Extracted copy of T3485-Unity.unitypackage
+/.t34-package/
+
+# Local Unity output and settings
+/Library/
+/Temp/
+/Obj/
+/Logs/
+/UserSettings/
+/Build/
+/Builds/
+
+# Generated Unity IDE files and local IDE settings
+/*.sln
+/*.slnx
+/*.csproj
+/.vs/
+/.idea/
