@@ -1438,7 +1438,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 195587303}
-  m_Text: 200 / MOVING
+  m_Text: "200 / \u0414\u0412\u0418\u0416\u0415\u0422\u0421\u042F"
   m_OffsetZ: 0
   m_CharacterSize: 0.7
   m_LineSpacing: 1
@@ -2451,7 +2451,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 293213843}
-  m_Text: PHYSICS PLAYGROUND
+  m_Text: "\u0424\u0418\u0417\u0418\u0427\u0415\u0421\u041A\u0418\u0419 \u041F\u041E\u041B\u0418\u0413\u041E\u041D"
   m_OffsetZ: 0
   m_CharacterSize: 0.8
   m_LineSpacing: 1
@@ -4426,7 +4426,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 558728389}
-  m_Text: 200 / MOVING
+  m_Text: "200 / \u0414\u0412\u0418\u0416\u0415\u0422\u0421\u042F"
   m_OffsetZ: 0
   m_CharacterSize: 0.7
   m_LineSpacing: 1
@@ -6660,7 +6660,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 959459013}
-  m_Text: 200 / MOVING
+  m_Text: "200 / \u0414\u0412\u0418\u0416\u0415\u0422\u0421\u042F"
   m_OffsetZ: 0
   m_CharacterSize: 0.7
   m_LineSpacing: 1
@@ -7914,7 +7914,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1174229655}
-  m_Text: 200 / MOVING
+  m_Text: "200 / \u0414\u0412\u0418\u0416\u0415\u0422\u0421\u042F"
   m_OffsetZ: 0
   m_CharacterSize: 0.7
   m_LineSpacing: 1
@@ -15662,7 +15662,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2116346341}
-  m_Text: MAD MACHINES
+  m_Text: "\u0411\u0415\u0417\u0423\u041C\u041D\u042B\u0415 \u041C\u0410\u0428\u0418\u041D\u042B"
   m_OffsetZ: 0
   m_CharacterSize: 2
   m_LineSpacing: 1

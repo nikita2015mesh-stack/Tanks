@@ -48,54 +48,58 @@ namespace MadMachines
                 GUI.DrawTexture(new Rect(30, 30, 510, height - 60), Texture2D.whiteTexture);
                 GUI.color = Color.white;
                 GUILayout.BeginArea(new Rect(55, 48, 460, height - 90));
-                GUILayout.Label("MAD MACHINES", title);
-                GUILayout.Label("P H Y S I C S   P L A Y G R O U N D", small);
+                GUILayout.Label(PlaygroundText.Title, title);
+                GUILayout.Label(PlaygroundText.Subtitle, small);
                 GUILayout.Space(14);
                 if (rules.Phase == SessionPhase.Results)
                 {
-                    GUILayout.Label($"{rules.Mode} complete", title);
-                    GUILayout.Label(rules.Mode == ChallengeMode.Shooting ? $"{rules.Result:0} POINTS" : $"{rules.Result:0.00} SECONDS", title);
+                    GUILayout.Label(PlaygroundText.ModeName(rules.Mode), title);
+                    GUILayout.Label(FormatResult(rules.Result), title);
                     GUILayout.Label(rules.ResultDetail, text);
                     GUILayout.Space(10);
-                    GUILayout.Label("LOCAL TOP 5", small);
+                    GUILayout.Label("ЛОКАЛЬНЫЙ ТОП-5", small);
                     var records = LocalRecords.Read(rules.Mode);
-                    for (int i = 0; i < records.Count; i++) GUILayout.Label($"{i + 1}.   {records[i]:0.00}" + (rules.Mode == ChallengeMode.Shooting ? " pts" : " s"), small);
-                    if (GUILayout.Button("RETRY", button)) input.Begin(rules.Mode);
-                    if (GUILayout.Button("BACK TO GARAGE", button)) input.OpenMenu();
+                    for (int i = 0; i < records.Count; i++)
+                        GUILayout.Label($"{i + 1}.   {FormatResult(records[i])}", small);
+                    if (GUILayout.Button("ПОВТОРИТЬ", button)) input.Begin(rules.Mode);
+                    if (GUILayout.Button("В ГАРАЖ", button)) input.OpenMenu();
                 }
                 else if (input.Paused)
                 {
-                    GUILayout.Label("PAUSED", title);
-                    if (GUILayout.Button("RESUME", button)) input.Resume();
-                    if (GUILayout.Button("RESTART", button)) input.Begin(rules.Mode);
-                    if (GUILayout.Button("BACK TO GARAGE", button)) input.OpenMenu();
+                    GUILayout.Label("ПАУЗА", title);
+                    if (GUILayout.Button("ПРОДОЛЖИТЬ", button)) input.Resume();
+                    if (GUILayout.Button("НАЧАТЬ ЗАНОВО", button)) input.Begin(rules.Mode);
+                    if (GUILayout.Button("В ГАРАЖ", button)) input.OpenMenu();
                 }
                 else
                 {
-                    GUILayout.Label("One ridiculous buggy. Three ways to prove yourself.", text);
+                    GUILayout.Label("Один безумный багги. Три испытания.", text);
                     GUILayout.Space(12);
-                    if (GUILayout.Button("FREE DRIVE  /  explore & experiment", button)) input.Begin(ChallengeMode.Free);
-                    if (GUILayout.Button("RACE  /  beat the clock", button)) input.Begin(ChallengeMode.Race);
-                    if (GUILayout.Button("TARGET RUSH  /  60 seconds", button)) input.Begin(ChallengeMode.Shooting);
-                    if (GUILayout.Button("COMBAT COURSE  /  drive + destroy", button)) input.Begin(ChallengeMode.Combat);
+                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Free), button)) input.Begin(ChallengeMode.Free);
+                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Race), button)) input.Begin(ChallengeMode.Race);
+                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Shooting), button)) input.Begin(ChallengeMode.Shooting);
+                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Combat), button)) input.Begin(ChallengeMode.Combat);
                     GUILayout.Space(14);
-                    GUILayout.Label("RACE: pass green gates in order. R adds 3s.\nTARGET RUSH: destroy red targets; moving targets score double.\nCOMBAT: every surviving target adds 8s; missed shots add 0.25s.", small);
+                    GUILayout.Label("Гонка — проезжайте зелёные ворота по порядку. Восстановление добавляет 3 с.\nСтрелковый полигон — 60 с на красные цели. Движущиеся цели дают вдвое больше очков.\nБоевая трасса — каждая оставшаяся цель добавляет 8 с, а каждый промах — 0,25 с.", small);
                     GUILayout.Space(14);
-                    GUILayout.Label("WASD drive  •  SPACE drift\nMouse aim  •  LMB fire  •  1 / 2 / 3 weapon\nR recover  •  ESC pause", text);
+                    GUILayout.Label("WASD — езда  •  Пробел — занос\nМышь — прицел  •  ЛКМ — огонь  •  1/2/3 — оружие\nR — восстановление  •  Esc — пауза", text);
                 }
                 GUILayout.EndArea();
                 return;
             }
             GUI.Box(new Rect(20, 20, 360, 138), "");
-            GUI.Label(new Rect(35, 28, 340, 35), rules.Mode == ChallengeMode.Free ? "FREE DRIVE" : rules.Mode.ToString().ToUpperInvariant(), text);
-            GUI.Label(new Rect(35, 61, 340, 30), rules.Mode == ChallengeMode.Shooting ? $"{rules.Remaining:0.0}s left   •   {rules.Score} pts" : $"{rules.Elapsed:0.00}s   •   Gate {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}", text);
-            GUI.Label(new Rect(35, 94, 340, 50), $"{vehicle.Speed:0} km/h   •   {weapons.Current.Label}", text);
+            GUI.Label(new Rect(35, 28, 340, 35), PlaygroundText.ModeName(rules.Mode), text);
+            string progress = rules.Mode == ChallengeMode.Shooting
+                ? $"Осталось {PlaygroundText.Seconds(rules.Remaining, "0.0")}   •   {FormatResult(rules.Score)}"
+                : $"{PlaygroundText.Seconds(rules.Elapsed)}   •   Ворота {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}";
+            GUI.Label(new Rect(35, 61, 340, 30), progress, text);
+            GUI.Label(new Rect(35, 94, 340, 50), $"{vehicle.Speed:0} км/ч   •   {weapons.Current.Label}", text);
             GUI.Box(new Rect(20, height - 78, 355, 58), "");
-            GUI.Label(new Rect(35, height - 71, 335, 25), weapons.Reload > 0f ? "RELOADING" : "READY TO FIRE", small);
+            GUI.Label(new Rect(35, height - 71, 335, 25), weapons.Reload > 0f ? "ПЕРЕЗАРЯДКА" : "МОЖНО СТРЕЛЯТЬ", small);
             GUI.color = new Color(0.3f, 1f, 0.65f);
             GUI.DrawTexture(new Rect(35, height - 40, 320 * (1f - weapons.Reload), 6), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            GUI.Label(new Rect(width - 375, height - 60, 355, 50), "1 Machine gun  2 Cannon  3 Wrecker\nR recover  •  SPACE drift  •  ESC menu", small);
+            GUI.Label(new Rect(width - 375, height - 60, 355, 50), "1 — пулемёт  2 — пушка  3 — граната\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
             GUI.color = Time.time - rules.LastHitTime < 0.2f ? Color.red : Color.white;
             GUI.DrawTexture(new Rect(width / 2 - 13, height / 2, 9, 2), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(width / 2 + 5, height / 2, 9, 2), Texture2D.whiteTexture);
@@ -123,7 +127,12 @@ namespace MadMachines
                 if (weapons.Current.Gravity) velocity += Physics.gravity * 0.08f;
             }
             if (rules.Phase == SessionPhase.Countdown)
-                GUI.Label(new Rect(width / 2 - 80, height / 2 - 140, 230, 60), "READY " + Mathf.CeilToInt(rules.Countdown), title);
+                GUI.Label(new Rect(width / 2 - 125, height / 2 - 140, 250, 60), "ДО СТАРТА " + Mathf.CeilToInt(rules.Countdown), title);
+        }
+
+        private string FormatResult(float result)
+        {
+            return rules.Mode == ChallengeMode.Shooting ? $"{result:0} очк." : PlaygroundText.Seconds(result);
         }
     }
 }

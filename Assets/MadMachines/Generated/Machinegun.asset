@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2dd5e75dbc125ef49b5db9e7769cedc5, type: 3}
   m_Name: Machinegun
   m_EditorClassIdentifier: Assembly-CSharp::MadMachines.WeaponDefinition
-  Label: Machine gun
+  Label: "\u041F\u0443\u043B\u0435\u043C\u0451\u0442"
   Speed: 110
   Mass: 0.06
   Interval: 0.08

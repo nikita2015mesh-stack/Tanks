@@ -138,7 +138,12 @@ namespace MadMachines
         {
             elapsed = Elapsed;
             Result = Mode == ChallengeMode.Shooting ? Score : elapsed + (Mode == ChallengeMode.Combat ? MissedTargets * 8f + Mathf.Max(0, shots - hits) * 0.25f : 0f);
-            ResultDetail = Mode == ChallengeMode.Shooting ? $"{destroyed}/{targets.Length} targets • {Accuracy:0}% hit ratio" : Mode == ChallengeMode.Combat ? $"Drive {elapsed:0.00}s + {MissedTargets} missed targets × 8s + misses × 0.25s" : "All checkpoints cleared";
+            ResultDetail = Mode switch
+            {
+                ChallengeMode.Shooting => $"Поражено целей — {destroyed}/{targets.Length}  •  Точность — {Accuracy:0} %",
+                ChallengeMode.Combat => $"Заезд — {PlaygroundText.Seconds(elapsed)}\nОставшиеся цели — {MissedTargets} × 8 с\nПромахи — {Mathf.Max(0, shots - hits)} × 0,25 с",
+                _ => "Все ворота пройдены"
+            };
             Phase = SessionPhase.Results;
             if (PersistRecords) LocalRecords.Save(Mode, Result);
             Finished?.Invoke(Mode, Result);

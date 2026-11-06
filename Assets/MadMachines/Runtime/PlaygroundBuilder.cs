@@ -84,7 +84,9 @@ namespace MadMachines
                 targetBody.isKinematic = true;
                 targets[i] = target.AddComponent<Target>();
                 targets[i].Configure(rules, i % 2 == 0 ? 100 : 200, i % 2 == 0 ? 0 : 4);
-                Label(i % 2 == 0 ? "100" : "200 / MOVING", targetPositions[i] + Vector3.up * 2.5f, root, 0.7f);
+                string labelName = i % 2 == 0 ? "100" : "200 / MOVING";
+                string labelText = i % 2 == 0 ? "100" : PlaygroundText.MovingTarget;
+                Label(labelName, targetPositions[i] + Vector3.up * 2.5f, root, 0.7f, labelText);
             }
             rules.Configure(car, gates, targets);
             GameObject cameraObject = new GameObject("Playground Camera", typeof(Camera), typeof(AudioListener));
@@ -113,8 +115,8 @@ namespace MadMachines
             RenderSettings.fog = true;
             RenderSettings.fogColor = camera.backgroundColor;
             RenderSettings.fogDensity = 0.003f;
-            Label("MAD MACHINES", new Vector3(-13, 8, -30), root, 2);
-            Label("PHYSICS PLAYGROUND", new Vector3(-13, 6, -30), root, 0.8f);
+            Label("MAD MACHINES", new Vector3(-13, 8, -30), root, 2, PlaygroundText.Title);
+            Label("PHYSICS PLAYGROUND", new Vector3(-13, 6, -30), root, 0.8f, PlaygroundText.Subtitle);
             return world;
         }
 
@@ -183,15 +185,15 @@ namespace MadMachines
             return shape;
         }
 
-        private static void Label(string text, Vector3 position, Transform root, float size)
+        private static void Label(string name, Vector3 position, Transform root, float size, string text = null)
         {
-            GameObject label = new GameObject(text);
+            GameObject label = new GameObject(name);
             label.transform.SetParent(root);
             label.transform.position = position;
             TextMesh mesh = label.AddComponent<TextMesh>();
             mesh.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             label.GetComponent<Renderer>().sharedMaterial = mesh.font.material;
-            mesh.text = text;
+            mesh.text = text ?? name;
             mesh.characterSize = size;
             mesh.fontSize = 48;
             mesh.anchor = TextAnchor.MiddleCenter;

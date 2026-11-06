@@ -40,13 +40,13 @@ namespace MadMachines.Editor
             Directory.CreateDirectory("Assets/MadMachines/Generated");
             AssetDatabase.Refresh();
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            WeaponDefinition machineGun = Weapon("Machine gun", 110, 0.08f, 60, 0, 0.065f, 22);
+            WeaponDefinition machineGun = Weapon("Machinegun", "Пулемёт", 110, 0.08f, 60, 0, 0.065f, 22);
             machineGun.Gravity = false;
             machineGun.Spread = 1.2f;
             machineGun.Lifetime = 0.8f;
             machineGun.Mass = 0.06f;
-            WeaponDefinition cannon = Weapon("Ballistic cannon", 38, 1.15f, 2200, 5, 0.22f, 100);
-            WeaponDefinition wrecker = Weapon("Wrecker grenade", 24, 3.6f, 8500, 10, 0.65f, 180);
+            WeaponDefinition cannon = Weapon("Ballisticcannon", "Баллистическая пушка", 38, 1.15f, 2200, 5, 0.22f, 100);
+            WeaponDefinition wrecker = Weapon("Wreckergrenade", "Тяжёлая граната", 24, 3.6f, 8500, 10, 0.65f, 180);
             wrecker.TimedBounce = true;
             wrecker.Lifetime = 3.2f;
             wrecker.Mass = 35;
@@ -75,9 +75,9 @@ namespace MadMachines.Editor
             Debug.Log("MAD MACHINES: scene generated at " + ScenePath);
         }
 
-        private static WeaponDefinition Weapon(string label, float speed, float interval, float recoil, float radius, float size, float damage)
+        private static WeaponDefinition Weapon(string assetName, string label, float speed, float interval, float recoil, float radius, float size, float damage)
         {
-            string path = "Assets/MadMachines/Generated/" + label.Replace(" ", "") + ".asset";
+            string path = $"Assets/MadMachines/Generated/{assetName}.asset";
             WeaponDefinition definition = AssetDatabase.LoadAssetAtPath<WeaponDefinition>(path);
             if (definition != null) return definition;
             definition = ScriptableObject.CreateInstance<WeaponDefinition>();

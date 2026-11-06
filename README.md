@@ -6,7 +6,9 @@
 
 1. Открой `C:/Projects/Tanks` в Unity 6000.6.8f1 и дождись импорта.
 2. Открой `Assets/MadMachines/Scenes/Playground.unity` и нажми Play.
-3. Выбери FREE DRIVE, RACE, TARGET RUSH или COMBAT COURSE.
+3. Выбери «Свободная езда», «Гонка», «Стрелковый полигон» или «Боевая трасса».
+
+В игре MAD MACHINES отображается под названием «Безумные машины». Основной язык интерфейса — русский.
 
 Если сцены ещё нет: **Tools → Mad Machines → Create or open playground**. Команда создаёт сцену только при отсутствии файла, иначе открывает существующую. Для сборки: **Tools → Mad Machines → Build Windows player**; результат — `Builds/MadMachines/MadMachines.exe`. Сборка использует только новую сцену и не меняет список сцен старого проекта.
 
