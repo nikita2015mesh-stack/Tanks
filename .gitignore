@@ -9,6 +9,8 @@
 /UserSettings/
 /Build/
 /Builds/
+/MemoryCaptures/
+/Recordings/
 
 # Generated Unity IDE files and local IDE settings
 /*.sln
@@ -16,3 +18,4 @@
 /*.csproj
 /.vs/
 /.idea/
+/.utmp/

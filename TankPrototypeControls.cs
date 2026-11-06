@@ -20,6 +20,7 @@ public sealed class TankPrototypeControls : MonoBehaviour
     bool ownsCursor;
     Transform barrel;
     float nextShotTime;
+    bool showTitle = true;
     bool inBattle;
     const float MinSpread = 0.45f;
     const float MaxSpread = 3.5f;
@@ -173,6 +174,12 @@ public sealed class TankPrototypeControls : MonoBehaviour
             battleButton = new GUIStyle(GUI.skin.button) { fontSize = 20, fontStyle = FontStyle.Bold };
         }
 
+        if (showTitle)
+        {
+            DrawTitleScreen();
+            return;
+        }
+
         const float width = 234f;
         float height = Mathf.Min(218f, Screen.height - 24f);
         var panel = new Rect(12f, (Screen.height - height) / 2f, width, height);
@@ -194,6 +201,23 @@ public sealed class TankPrototypeControls : MonoBehaviour
             Cursor.visible = false;
         }
         GUI.backgroundColor = previousBackground;
+        GUI.color = previous;
+    }
+
+    void DrawTitleScreen()
+    {
+        Color previous = GUI.color;
+        GUI.color = new Color(.05f, .07f, .06f);
+        GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
+        GUI.color = Color.white;
+
+        float width = Mathf.Min(260f, Screen.width - 24f);
+        float x = (Screen.width - width) * 0.5f;
+        float y = Screen.height * 0.5f;
+        GUI.Label(new Rect(x, y - 60f, width, 42f), "ТАНЧИКИ", hangarTitle);
+        if (GUI.Button(new Rect(x, y, width, 46f), "В АНГАР", battleButton))
+            showTitle = false;
+
         GUI.color = previous;
     }
 
