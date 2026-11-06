@@ -1,0 +1,142 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace MadMachines
+{
+    public enum ChallengeMode { Free, Race, Shooting, Combat }
+    public enum SessionPhase { Free, Countdown, Running, Results }
+
+    public sealed class ChallengeManager : MonoBehaviour
+    {
+        [SerializeField] private VehiclePhysics participant;
+        [SerializeField] private Checkpoint[] checkpoints;
+        [SerializeField] private Target[] targets;
+        [SerializeField] private Vector3 spawn = new Vector3(0f, 1.5f, -42f);
+        [SerializeField] private float shootingDuration = 60f;
+        private float startTime;
+        private int destroyed;
+        private int shots;
+        private int hits;
+        private readonly HashSet<int> hitShots = new HashSet<int>();
+        private bool wasKinematic;
+        public bool Authority { get; set; } = true;
+        public bool PersistRecords { get; set; } = true;
+        public ChallengeMode Mode { get; private set; }
+        public SessionPhase Phase { get; private set; }
+        public int NextCheckpoint { get; private set; }
+        public int CheckpointCount => checkpoints.Length;
+        public int Score { get; private set; }
+        public float Result { get; private set; }
+        public float LastHitTime { get; private set; } = -10f;
+        public float Elapsed => Phase == SessionPhase.Running ? Time.time - startTime : elapsed;
+        public float Remaining => Mathf.Max(0f, shootingDuration - Elapsed);
+        public float Countdown => Mathf.Max(0f, startTime - Time.time);
+        public int MissedTargets => targets.Length - destroyed;
+        public float Accuracy => shots == 0 ? 0f : Mathf.Min(100f, hits * 100f / shots);
+        public string ResultDetail { get; private set; }
+        public event Action<ChallengeMode, float> Finished;
+        private float elapsed;
+
+        public void Configure(VehiclePhysics vehicle, Checkpoint[] gates, Target[] rangeTargets)
+        {
+            participant = vehicle;
+            checkpoints = gates;
+            targets = rangeTargets;
+        }
+
+        private void Start()
+        {
+            participant.GetComponent<WeaponSystem>().Fired += CountShot;
+            Highlight();
+        }
+
+        private void CountShot() { if (Phase == SessionPhase.Running) shots++; }
+
+        public void Begin(ChallengeMode mode)
+        {
+            if (!Authority) return;
+            Time.timeScale = 1f;
+            if (Phase == SessionPhase.Countdown) participant.Body.isKinematic = wasKinematic;
+            Mode = mode;
+            Score = destroyed = shots = hits = NextCheckpoint = 0;
+            hitShots.Clear();
+            participant.GetComponent<WeaponSystem>().ResetReload();
+            elapsed = Result = 0f;
+            ResultDetail = "";
+            foreach (Projectile projectile in FindObjectsByType<Projectile>()) Destroy(projectile.gameObject);
+            foreach (Target target in targets) target.ResetTarget();
+            participant.Recover(spawn, Quaternion.identity);
+            Phase = mode == ChallengeMode.Free ? SessionPhase.Free : SessionPhase.Countdown;
+            startTime = Time.time + 3f;
+            if (Phase == SessionPhase.Countdown)
+            {
+                wasKinematic = participant.Body.isKinematic;
+                participant.Body.isKinematic = true;
+            }
+            Highlight();
+        }
+
+        private void Update()
+        {
+            if (!Authority) return;
+            if (Phase == SessionPhase.Countdown && Time.time >= startTime)
+            {
+                participant.Body.isKinematic = wasKinematic;
+                Phase = SessionPhase.Running;
+                startTime = Time.time;
+            }
+            if (Phase == SessionPhase.Running && Mode == ChallengeMode.Shooting && Remaining <= 0f) Finish();
+        }
+
+        public void Recover()
+        {
+            if (!Authority || Phase == SessionPhase.Countdown) return;
+            if (NextCheckpoint > 0 && Mode != ChallengeMode.Shooting)
+            {
+                Transform gate = checkpoints[NextCheckpoint - 1].transform;
+                participant.Recover(gate.position + Vector3.up * 1.5f + gate.forward * 3f, gate.rotation);
+            }
+            else participant.Recover(spawn, Quaternion.identity);
+            if (Phase == SessionPhase.Running && Mode != ChallengeMode.Shooting) startTime -= 3f;
+        }
+
+        public void PassCheckpoint(int index, VehiclePhysics vehicle)
+        {
+            if (!Authority || vehicle != participant || Phase != SessionPhase.Running || Mode == ChallengeMode.Shooting || index != NextCheckpoint) return;
+            NextCheckpoint++;
+            Highlight();
+            if (NextCheckpoint == checkpoints.Length) Finish();
+        }
+
+        public void RegisterHit(VehiclePhysics attacker, int shotId)
+        {
+            if (!Authority || attacker != participant) return;
+            LastHitTime = Time.time;
+            if (Phase == SessionPhase.Running && shotId > 0 && hitShots.Add(shotId)) hits++;
+        }
+
+        public void TargetDestroyed(Target target, VehiclePhysics attacker)
+        {
+            if (!Authority || attacker != participant || Phase != SessionPhase.Running || Mode == ChallengeMode.Race) return;
+            Score += target.Points;
+            destroyed++;
+            if (Mode == ChallengeMode.Shooting && destroyed == targets.Length) Finish();
+        }
+
+        private void Finish()
+        {
+            elapsed = Elapsed;
+            Result = Mode == ChallengeMode.Shooting ? Score : elapsed + (Mode == ChallengeMode.Combat ? MissedTargets * 8f + Mathf.Max(0, shots - hits) * 0.25f : 0f);
+            ResultDetail = Mode == ChallengeMode.Shooting ? $"{destroyed}/{targets.Length} targets • {Accuracy:0}% hit ratio" : Mode == ChallengeMode.Combat ? $"Drive {elapsed:0.00}s + {MissedTargets} missed targets × 8s + misses × 0.25s" : "All checkpoints cleared";
+            Phase = SessionPhase.Results;
+            if (PersistRecords) LocalRecords.Save(Mode, Result);
+            Finished?.Invoke(Mode, Result);
+        }
+
+        private void Highlight()
+        {
+            for (int i = 0; i < checkpoints.Length; i++) checkpoints[i].Highlight(i == NextCheckpoint && Mode != ChallengeMode.Shooting && Mode != ChallengeMode.Free);
+        }
+    }
+}
