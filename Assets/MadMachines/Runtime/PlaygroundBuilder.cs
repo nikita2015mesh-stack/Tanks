@@ -189,6 +189,8 @@ namespace MadMachines
             label.transform.SetParent(root);
             label.transform.position = position;
             TextMesh mesh = label.AddComponent<TextMesh>();
+            mesh.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            label.GetComponent<Renderer>().sharedMaterial = mesh.font.material;
             mesh.text = text;
             mesh.characterSize = size;
             mesh.fontSize = 48;

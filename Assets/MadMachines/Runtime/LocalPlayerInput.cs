@@ -17,7 +17,11 @@ namespace MadMachines
             vehicle = car; weapons = gun; view = camera; rules = session;
         }
 
-        private void Start() { weapons.Fired += view.Shake; SetCursor(); }
+        private void Start()
+        {
+            weapons.Fired += view.Shake;
+            SetCursor();
+        }
 
         public void Begin(ChallengeMode mode)
         {
@@ -27,8 +31,21 @@ namespace MadMachines
             SetCursor();
         }
 
-        public void Resume() { Paused = false; Time.timeScale = 1f; SetCursor(); }
-        public void OpenMenu() { Menu = true; Paused = false; Time.timeScale = 1f; rules.Begin(ChallengeMode.Free); SetCursor(); }
+        public void Resume()
+        {
+            Paused = false;
+            Time.timeScale = 1f;
+            SetCursor();
+        }
+
+        public void OpenMenu()
+        {
+            Menu = true;
+            Paused = false;
+            Time.timeScale = 1f;
+            rules.Begin(ChallengeMode.Free);
+            SetCursor();
+        }
         private void SetCursor()
         {
             bool locked = !Menu && !Paused && rules.Phase != SessionPhase.Results;
@@ -69,6 +86,11 @@ namespace MadMachines
             if (keyboard.rKey.wasPressedThisFrame || vehicle.transform.position.y < -15f) rules.Recover();
         }
 
-        private void OnDisable() { Time.timeScale = 1f; Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        private void OnDisable()
+        {
+            Time.timeScale = 1f;
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
     }
 }

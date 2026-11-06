@@ -12,6 +12,17 @@ namespace MadMachines
         private GUIStyle text;
         private GUIStyle button;
         private GUIStyle small;
+
+        private void Awake()
+        {
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            foreach (TextMesh label in GetComponentsInChildren<TextMesh>())
+            {
+                label.font = font;
+                label.GetComponent<Renderer>().sharedMaterial = font.material;
+            }
+        }
+
         public void Configure(LocalPlayerInput local, VehiclePhysics car, WeaponSystem gun, ChallengeManager session)
         {
             input = local; vehicle = car; weapons = gun; rules = session;

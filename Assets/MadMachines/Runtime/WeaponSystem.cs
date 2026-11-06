@@ -62,6 +62,9 @@ namespace MadMachines
             return true;
         }
 
-        public void ResetReload() { nextShot = 0f; }
+        public void ResetReload()
+        {
+            nextShot = 0f;
+        }
     }
 }

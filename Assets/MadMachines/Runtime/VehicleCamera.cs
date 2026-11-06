@@ -9,14 +9,25 @@ namespace MadMachines
         private float pitch = 12f;
         private float shake;
         public Vector3 AimDirection => Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
-        public void Configure(Transform follow) { target = follow; }
+        public void Configure(Transform follow)
+        {
+            target = follow;
+        }
         public void Look(Vector2 delta)
         {
             yaw += delta.x * 0.12f;
             pitch = Mathf.Clamp(pitch - delta.y * 0.12f, -42f, 30f);
         }
-        public void Shake() { shake = 0.22f; }
-        public void ResetView() { yaw = target.eulerAngles.y; pitch = 12f; }
+        public void Shake()
+        {
+            shake = 0.22f;
+        }
+
+        public void ResetView()
+        {
+            yaw = target.eulerAngles.y;
+            pitch = 12f;
+        }
 
         private void LateUpdate()
         {

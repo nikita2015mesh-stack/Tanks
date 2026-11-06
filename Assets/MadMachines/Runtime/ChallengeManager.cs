@@ -4,8 +4,15 @@ using UnityEngine;
 
 namespace MadMachines
 {
-    public enum ChallengeMode { Free, Race, Shooting, Combat }
-    public enum SessionPhase { Free, Countdown, Running, Results }
+    public enum ChallengeMode
+    {
+        Free, Race, Shooting, Combat
+    }
+
+    public enum SessionPhase
+    {
+        Free, Countdown, Running, Results
+    }
 
     public sealed class ChallengeManager : MonoBehaviour
     {
@@ -51,7 +58,10 @@ namespace MadMachines
             Highlight();
         }
 
-        private void CountShot() { if (Phase == SessionPhase.Running) shots++; }
+        private void CountShot()
+        {
+            if (Phase == SessionPhase.Running) shots++;
+        }
 
         public void Begin(ChallengeMode mode)
         {
