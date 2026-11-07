@@ -109,7 +109,7 @@ namespace MadMachines.Networking.Editor
         {
             NetworkManager manager = NetworkManager.Singleton;
             Require(EditorApplication.isPlaying && manager != null && manager.IsListening, "Нужна запущенная сессия");
-            HashSet<ulong> owners = new HashSet<ulong>();
+            HashSet<ulong> controllers = new HashSet<ulong>();
             HashSet<int> slots = new HashSet<int>();
             int vehicles = 0;
             int projectiles = 0;
@@ -121,13 +121,14 @@ namespace MadMachines.Networking.Editor
                 if (vehicle != null)
                 {
                     vehicles++;
-                    Require(owners.Add(item.OwnerClientId) && slots.Add(vehicle.Slot), "Уникальные владелец и место");
-                    Require(item.IsPlayerObject, "Машина назначена PlayerObject");
+                    Require(controllers.Add(vehicle.ControllerClientId) && slots.Add(vehicle.Slot), "Уникальные управляющий клиент и место");
+                    Require(item.OwnerClientId == NetworkManager.ServerClientId && !item.AutoObjectParentSync &&
+                        !item.SyncOwnerTransformWhenParented && !item.AllowOwnerToParent, "Сервер владеет машиной, сетевая смена родителя отключена");
                     VehiclePhysics physics = item.GetComponent<VehiclePhysics>();
                     Require(physics.enabled == manager.IsServer && physics.Authority == manager.IsServer, "Авторитет VehiclePhysics");
                     if (manager.IsServer)
-                        Require(manager.ConnectedClients.TryGetValue(item.OwnerClientId, out NetworkClient client) && client.PlayerObject == item, "Реестр участников NGO");
-                    Debug.Log($"[MM NET CHECK] Машина {item.NetworkObjectId}, владелец {item.OwnerClientId}, место {vehicle.Slot + 1}: {vehicle.CommandDiagnostics}.");
+                        Require(manager.ConnectedClients.ContainsKey(vehicle.ControllerClientId), "Управляющий клиент подключён");
+                    Debug.Log($"[MM NET CHECK] Машина {item.NetworkObjectId}, клиент {vehicle.ControllerClientId}, место {vehicle.Slot + 1}: {vehicle.CommandDiagnostics}.");
                 }
                 if (item.GetComponent<NetworkBallisticProjectile>() != null)
                 {
@@ -159,10 +160,15 @@ namespace MadMachines.Networking.Editor
         public static void RequestClientTeleport()
         {
             NetworkManager manager = NetworkManager.Singleton;
-            Require(EditorApplication.isPlaying && manager != null && manager.IsConnectedClient && !manager.IsServer && manager.LocalClient.PlayerObject != null, "Нужна машина Editor-клиента");
-            NetworkObject player = manager.LocalClient.PlayerObject;
-            player.GetComponent<NetworkPhysicsState>().RequestClientPoseProbe();
-            Debug.Log("[MM NET CHECK] Ожидается ошибка прав записи NGO; локальная подмена позы должна исчезнуть на следующем кадре. Сервер и второй клиент не должны изменить положение машины.");
+            Require(EditorApplication.isPlaying && manager != null && manager.IsConnectedClient && !manager.IsServer, "Нужен подключённый Editor-клиент");
+            foreach (NetworkObject item in manager.SpawnManager.SpawnedObjectsList)
+            {
+                if (!item.TryGetComponent(out NetworkVehicle vehicle) || !vehicle.IsLocalController) continue;
+                item.GetComponent<NetworkPhysicsState>().RequestClientPoseProbe();
+                Debug.Log("[MM NET CHECK] Ожидается ошибка прав записи NGO; локальная подмена позы должна исчезнуть на следующем кадре. Сервер и второй клиент не должны изменить положение машины.");
+                return;
+            }
+            throw new InvalidOperationException("[MM NET CHECK] Нужна машина Editor-клиента.");
         }
 
         private static NetworkVehicleCommand Valid(uint sequence) => new NetworkVehicleCommand { Sequence = sequence, Aim = Vector3.forward };

@@ -14,6 +14,7 @@ namespace MadMachines.Networking
         [SerializeField] private Transform[] wheelMeshes;
         [SerializeField] private Renderer hullRenderer;
         [SerializeField] private NetworkBallisticProjectile projectilePrefab;
+        private readonly NetworkVariable<ulong> controller = new NetworkVariable<ulong>(NetworkManager.ServerClientId);
         private readonly NetworkVariable<int> slot = new NetworkVariable<int>();
         private readonly NetworkVariable<Vector3> aim = new NetworkVariable<Vector3>(Vector3.forward);
         private readonly NetworkVariable<float> steering = new NetworkVariable<float>();
@@ -31,9 +32,12 @@ namespace MadMachines.Networking
         private int timeouts;
         private bool hadFreshInput;
         private int initialSlot;
+        private ulong initialController;
 
         public string CommandDiagnostics => $"принято {accepted}; лимит {rejected[(int)CommandRejection.Rate]}; значения {rejected[(int)CommandRejection.Values]}; порядок {rejected[(int)CommandRejection.Sequence]}; владелец {rejected[(int)CommandRejection.Sender]}; неактивна {rejected[(int)CommandRejection.Inactive]}; тайм-ауты {timeouts}";
 
+        public ulong ControllerClientId => controller.Value;
+        public bool IsLocalController => IsSpawned && IsClient && ControllerClientId == NetworkManager.LocalClientId;
         public int Slot => slot.Value;
         public int Hits => hits.Value;
         public int Shots => shots.Value;
@@ -73,9 +77,10 @@ namespace MadMachines.Networking
             vehicle.enabled = false;
         }
 
-        public void InitializeServer(int playerSlot)
+        public void InitializeServer(int playerSlot, ulong clientId)
         {
             initialSlot = playerSlot;
+            initialController = clientId;
         }
 
         public override void OnNetworkSpawn()
@@ -91,6 +96,7 @@ namespace MadMachines.Networking
             vehicle.enabled = IsServer;
             if (IsServer)
             {
+                controller.Value = initialController;
                 slot.Value = initialSlot;
                 aim.Value = transform.forward;
             }
@@ -116,24 +122,24 @@ namespace MadMachines.Networking
 
         public void SendCommand(NetworkVehicleCommand command)
         {
-            if (IsSpawned && isActiveAndEnabled && IsClient && IsOwner && !NetworkManager.ShutdownInProgress) SubmitCommandRpc(command);
+            if (IsLocalController && isActiveAndEnabled && !NetworkManager.ShutdownInProgress) SubmitCommandRpc(command);
         }
 
-        [Rpc(SendTo.Server, Delivery = RpcDelivery.Unreliable, InvokePermission = RpcInvokePermission.Owner)]
+        [Rpc(SendTo.Server, Delivery = RpcDelivery.Unreliable, InvokePermission = RpcInvokePermission.Everyone)]
         private void SubmitCommandRpc(NetworkVehicleCommand command, RpcParams rpcParams = default)
         {
             if (!IsServer) return;
             double now = Time.realtimeSinceStartupAsDouble;
             bool active = IsSpawned && isActiveAndEnabled && !NetworkManager.ShutdownInProgress &&
-                NetworkManager.ConnectedClients.TryGetValue(OwnerClientId, out NetworkClient client) && client.PlayerObject == NetworkObject;
-            CommandRejection rejection = commands.Receive(command, now, rpcParams.Receive.SenderClientId, OwnerClientId, active);
+                ControllerClientId != NetworkManager.ServerClientId && NetworkManager.ConnectedClients.ContainsKey(ControllerClientId);
+            CommandRejection rejection = commands.Receive(command, now, rpcParams.Receive.SenderClientId, ControllerClientId, active);
             if (rejection == CommandRejection.None) accepted++;
             else rejected[(int)rejection]++;
         }
 
         private void FixedUpdate()
         {
-            if (!IsSpawned || !IsServer) return;
+            if (!IsSpawned || !IsServer || NetworkManager.ShutdownInProgress) return;
             double now = Time.realtimeSinceStartupAsDouble;
             bool fresh = commands.Sample(now, out NetworkVehicleCommand latest);
             if (!fresh && hadFreshInput) timeouts++;
@@ -160,7 +166,7 @@ namespace MadMachines.Networking
             }
             if (now >= nextDiagnostic)
             {
-                Debug.Log($"[MM NET] Машина {NetworkObjectId}, владелец {OwnerClientId}: {CommandDiagnostics}.");
+                Debug.Log($"[MM NET] Машина {NetworkObjectId}, клиент {ControllerClientId}: {CommandDiagnostics}.");
                 nextDiagnostic = now + 5;
             }
         }
@@ -229,16 +235,20 @@ namespace MadMachines.Networking
             {
                 if (overlap.attachedRigidbody != Body) return;
             }
-            NetworkBallisticProjectile projectile = Instantiate(projectilePrefab, muzzle.position, Quaternion.LookRotation(muzzle.forward));
+            NetworkBallisticProjectile projectile = null;
             try
             {
+                projectile = Instantiate(projectilePrefab, muzzle.position, Quaternion.LookRotation(muzzle.forward));
                 projectile.NetworkObject.Spawn(true);
                 projectile.Launch(this, muzzle.forward * 38f + Body.linearVelocity);
             }
             catch (System.Exception error)
             {
-                if (projectile.NetworkObject.IsSpawned) projectile.NetworkObject.Despawn(true);
-                else Destroy(projectile.gameObject);
+                if (projectile != null)
+                {
+                    if (projectile.NetworkObject.IsSpawned) projectile.NetworkObject.Despawn(true);
+                    else Destroy(projectile.gameObject);
+                }
                 Debug.LogError($"[MM NET] Ошибка создания снаряда машины {NetworkObjectId}: {error}");
                 return;
             }

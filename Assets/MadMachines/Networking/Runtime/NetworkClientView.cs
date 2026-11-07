@@ -42,10 +42,8 @@ namespace MadMachines.Networking
 
         private void Update()
         {
-            NetworkManager manager = session.Manager;
-            NetworkVehicle current = manager != null && manager.IsConnectedClient && manager.LocalClient.PlayerObject != null
-                ? manager.LocalClient.PlayerObject.GetComponent<NetworkVehicle>() : null;
-            if (current != localVehicle)
+            NetworkVehicle current = FindLocalVehicle();
+            if (!ReferenceEquals(current, localVehicle))
             {
                 localVehicle = current;
                 fireUntil = 0;
@@ -128,6 +126,18 @@ namespace MadMachines.Networking
             Debug.Log("[MM NET] Отправлены неверные числа, повтор, старый номер и пачка команд. Смотрите счётчики сервера; доставка UDP не гарантирована. Ввод возобновится через 0,6 с.");
         }
 #endif
+
+        private NetworkVehicle FindLocalVehicle()
+        {
+            NetworkManager manager = session.Manager;
+            if (manager == null || !manager.IsConnectedClient || manager.ShutdownInProgress) return null;
+            if (localVehicle != null && localVehicle.IsLocalController) return localVehicle;
+            foreach (NetworkObject item in manager.SpawnManager.SpawnedObjectsList)
+            {
+                if (item.TryGetComponent(out NetworkVehicle vehicle) && vehicle.IsLocalController) return vehicle;
+            }
+            return null;
+        }
 
         private void LateUpdate()
         {

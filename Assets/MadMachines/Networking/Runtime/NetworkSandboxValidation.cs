@@ -29,6 +29,8 @@ namespace MadMachines.Networking
         {
             if (prefab == null || !prefab.activeSelf || prefab.GetComponent<NetworkObject>() == null || prefab.GetComponent<Rigidbody>() == null)
                 throw new InvalidOperationException("Сетевой prefab отсутствует, выключен или не содержит NetworkObject/Rigidbody. Создайте NetworkSandbox через меню Network.");
+            if (prefab.GetComponent<NetworkObject>().PrefabIdHash == 0)
+                throw new InvalidOperationException(prefab.name + ": отсутствует сетевой идентификатор prefab. Проверьте импорт и сохранение prefab в Unity.");
             NetworkPhysicsState replication = prefab.GetComponent<NetworkPhysicsState>();
             if (replication == null || !replication.enabled || prefab.GetComponentInChildren<NetworkTransform>(true) != null ||
                 prefab.GetComponentInChildren<NetworkRigidbody>(true) != null)

@@ -51,7 +51,7 @@ namespace MadMachines.Networking
         }
     }
 
-    // No client-to-server pose RPC. Even the player object's owner cannot write this variable.
+    // No client-to-server pose RPC. The server alone owns the object and writes this variable.
     // This intentionally replaces NetworkTransform/NetworkRigidbody only in NetworkSandbox.
     [RequireComponent(typeof(NetworkObject), typeof(Rigidbody))]
     public sealed class NetworkPhysicsState : NetworkBehaviour
@@ -61,6 +61,7 @@ namespace MadMachines.Networking
             default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkPoseBuffer samples = new NetworkPoseBuffer();
         private Rigidbody body;
+        private CollisionDetectionMode serverCollisionMode;
         private NetworkTickSystem ticks;
         private Vector3 initialScale;
 
@@ -68,15 +69,23 @@ namespace MadMachines.Networking
         {
             body = GetComponent<Rigidbody>();
             initialScale = transform.localScale;
-            body.isKinematic = true;
+            serverCollisionMode = body.collisionDetectionMode;
+            SetBodyAuthority(false);
             body.interpolation = RigidbodyInterpolation.None;
+
+            // NGO 2.13.3 applies ParentSyncMessage transform data separately from parenting.
+            // Keep these objects server-owned and disable both paths.
+            NetworkObject networkObject = GetComponent<NetworkObject>();
+            networkObject.AutoObjectParentSync = false;
+            networkObject.AllowOwnerToParent = false;
+            networkObject.SyncOwnerTransformWhenParented = false;
+            networkObject.AlwaysReplicateAsRoot = true;
         }
 
         public override void OnNetworkSpawn()
         {
             samples.Reset();
-            body.isKinematic = !IsServer;
-            body.interpolation = RigidbodyInterpolation.None;
+            SetBodyAuthority(IsServer);
             if (IsServer)
             {
                 PublishPose();
@@ -95,7 +104,21 @@ namespace MadMachines.Networking
         {
             Unsubscribe();
             samples.Reset();
-            body.isKinematic = true;
+            SetBodyAuthority(false);
+        }
+
+        private void SetBodyAuthority(bool authoritative)
+        {
+            if (authoritative)
+            {
+                body.isKinematic = false;
+                body.collisionDetectionMode = serverCollisionMode;
+            }
+            else
+            {
+                body.collisionDetectionMode = CollisionDetectionMode.Discrete;
+                body.isKinematic = true;
+            }
         }
 
         public override void OnDestroy()

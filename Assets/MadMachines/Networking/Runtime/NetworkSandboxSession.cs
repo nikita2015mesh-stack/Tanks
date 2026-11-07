@@ -78,7 +78,7 @@ namespace MadMachines.Networking
                 Manager.NetworkConfig = new NetworkConfig
                 {
                     NetworkTransport = Transport,
-                    ProtocolVersion = 2,
+                    ProtocolVersion = 3,
                     TickRate = 30,
                     EnableSceneManagement = false,
                     ConnectionApproval = true,
@@ -137,6 +137,8 @@ namespace MadMachines.Networking
                     throw new InvalidOperationException("NetworkSandbox: точки появления должны находиться в сцене сессии.");
             NetworkSandboxValidation.ValidateVehicle(vehiclePrefab, projectilePrefab);
             NetworkSandboxValidation.ValidateProjectile(projectilePrefab);
+            if (vehiclePrefab.GetComponent<NetworkObject>().PrefabIdHash == projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash)
+                throw new InvalidOperationException("У машины и снаряда совпадают сетевые идентификаторы prefab.");
         }
 
         public void Connect(string address, string port)
@@ -204,8 +206,8 @@ namespace MadMachines.Networking
                 Transform start = spawnPoints[slot];
                 instance = Instantiate(vehiclePrefab, start.position, start.rotation);
                 NetworkObject player = instance.GetComponent<NetworkObject>();
-                instance.GetComponent<NetworkVehicle>().InitializeServer(slot);
-                player.SpawnAsPlayerObject(clientId, true);
+                instance.GetComponent<NetworkVehicle>().InitializeServer(slot, clientId);
+                player.Spawn(destroyWithScene: true);
                 players.Add(clientId, player);
                 Log($"Игрок {clientId} подключён; машина {player.NetworkObjectId}, место {slot + 1}; машин {players.Count}/2.");
             }
