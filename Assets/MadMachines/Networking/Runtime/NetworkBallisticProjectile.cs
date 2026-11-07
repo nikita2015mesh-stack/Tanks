@@ -24,14 +24,25 @@ namespace MadMachines.Networking
         {
             body = GetComponent<Rigidbody>();
             projectileCollider = GetComponent<Collider>();
+            projectileCollider.enabled = false;
         }
 
         public override void OnNetworkSpawn()
         {
+            finished = false;
+            ownerBody = null;
+            flightVelocity = Vector3.zero;
             // Client projectiles are only interpolated render objects, never impact authorities.
             projectileCollider.enabled = IsServer;
             previous = transform.position;
             expires = Time.realtimeSinceStartupAsDouble + Lifetime;
+        }
+
+        public override void OnNetworkDespawn()
+        {
+            finished = true;
+            projectileCollider.enabled = false;
+            ownerBody = null;
         }
 
         public void Launch(NetworkVehicle owner, Vector3 velocity)
@@ -42,6 +53,7 @@ namespace MadMachines.Networking
                 Physics.IgnoreCollision(projectileCollider, collider);
             body.linearVelocity = velocity;
             flightVelocity = velocity;
+            Debug.Log($"[MM NET] Создан снаряд {NetworkObjectId}, машина {owner.NetworkObjectId}.");
         }
 
         private void FixedUpdate()
@@ -50,6 +62,7 @@ namespace MadMachines.Networking
             if (Time.realtimeSinceStartupAsDouble >= expires)
             {
                 finished = true;
+                Debug.Log($"[MM NET] Снаряд {NetworkObjectId}: истекло время жизни.");
                 NetworkObject.Despawn(true);
                 return;
             }
@@ -80,14 +93,14 @@ namespace MadMachines.Networking
 
         private void OnCollisionEnter(Collision collision)
         {
-            if (!IsServer || !IsSpawned || finished || (ownerBody != null && collision.rigidbody == ownerBody)) return;
+            if (!IsServer || !IsSpawned || !isActiveAndEnabled || finished || (ownerBody != null && collision.rigidbody == ownerBody)) return;
             Vector3 point = collision.contactCount > 0 ? collision.GetContact(0).point : body.position;
             Impact(collision.collider, point);
         }
 
         private void Impact(Collider target, Vector3 point)
         {
-            if (finished) return;
+            if (finished || !IsServer || !IsSpawned) return;
             finished = true;
             Rigidbody affected = target.attachedRigidbody;
             if (affected != null && !affected.isKinematic)
@@ -98,6 +111,7 @@ namespace MadMachines.Networking
                 vehicle.RegisterHit();
                 Debug.Log($"[MM NET] Снаряд {NetworkObjectId}: попадание в машину {vehicle.NetworkObjectId}; всего попаданий {vehicle.Hits}.");
             }
+            else Debug.Log($"[MM NET] Снаряд {NetworkObjectId}: столкновение с {target.name}.");
             ShowImpactRpc(point);
             NetworkObject.Despawn(true);
         }

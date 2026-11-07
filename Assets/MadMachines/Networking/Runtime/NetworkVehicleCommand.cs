@@ -43,17 +43,90 @@ namespace MadMachines.Networking
         private uint lastSequence;
         private bool hasSequence;
 
-        public bool Accept(NetworkVehicleCommand command, double now)
+        public void Reset()
         {
+            tokens = Burst;
+            updated = 0;
+            lastSequence = 0;
+            hasSequence = false;
+        }
+
+        public bool Accept(NetworkVehicleCommand command, double now) => Evaluate(command, now) == CommandRejection.None;
+
+        public CommandRejection Evaluate(NetworkVehicleCommand command, double now)
+        {
+            if (double.IsNaN(now) || double.IsInfinity(now) || now < updated) return CommandRejection.Clock;
             tokens = System.Math.Min(Burst, tokens + System.Math.Max(0, now - updated) * CommandsPerSecond);
             updated = now;
-            if (tokens < 1) return false;
+            if (tokens < 1) return CommandRejection.Rate;
             tokens--;
-            if (!command.IsValid()) return false;
+            if (!command.IsValid()) return CommandRejection.Values;
             // Signed modular comparison also handles uint wraparound.
-            if (hasSequence && unchecked((int)(command.Sequence - lastSequence)) <= 0) return false;
+            if (hasSequence && unchecked((int)(command.Sequence - lastSequence)) <= 0) return CommandRejection.Sequence;
             lastSequence = command.Sequence;
             hasSequence = true;
+            return CommandRejection.None;
+        }
+    }
+
+    public enum CommandRejection { None, Rate, Values, Sequence, Clock, Sender, Inactive }
+
+    // No MonoBehaviour or wall-clock reads: both the RPC adapter and editor checks use this policy.
+    // Movement is a latest-value stream, fire is latched only until the next physics step.
+    public sealed class NetworkCommandBuffer
+    {
+        public const double Timeout = 0.25;
+        private readonly NetworkCommandGate gate = new NetworkCommandGate();
+        private NetworkVehicleCommand latest;
+        private double pendingFireAt = double.NegativeInfinity;
+        private double lastAcceptedAt = double.NegativeInfinity;
+
+        public void Reset()
+        {
+            gate.Reset();
+            ClearInput();
+        }
+
+        public void ClearInput()
+        {
+            latest = default;
+            pendingFireAt = double.NegativeInfinity;
+            lastAcceptedAt = double.NegativeInfinity;
+        }
+
+        public CommandRejection Receive(NetworkVehicleCommand command, double now, ulong sender, ulong owner, bool active)
+        {
+            if (!active) return CommandRejection.Inactive;
+            if (sender != owner) return CommandRejection.Sender;
+            CommandRejection rejection = gate.Evaluate(command, now);
+            if (rejection != CommandRejection.None) return rejection;
+            latest = command;
+            if (command.Fire) pendingFireAt = now;
+            lastAcceptedAt = now;
+            return CommandRejection.None;
+        }
+
+        public bool Sample(double now, out NetworkVehicleCommand command)
+        {
+            bool fresh = now >= lastAcceptedAt && now - lastAcceptedAt <= Timeout;
+            command = fresh ? latest : new NetworkVehicleCommand { Handbrake = true };
+            command.Fire = fresh && (latest.Fire || (now >= pendingFireAt && now - pendingFireAt <= Timeout));
+            pendingFireAt = double.NegativeInfinity;
+            return fresh;
+        }
+    }
+
+    public sealed class NetworkShotCooldown
+    {
+        public const double Interval = 1.15;
+        private double nextShot;
+
+        public void Reset() => nextShot = 0;
+
+        public bool TryBegin(double now)
+        {
+            if (double.IsNaN(now) || double.IsInfinity(now) || now < nextShot) return false;
+            nextShot = now + Interval;
             return true;
         }
     }

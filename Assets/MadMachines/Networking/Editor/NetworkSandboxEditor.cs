@@ -29,9 +29,9 @@ namespace MadMachines.Networking.Editor
         // Additive generation preserves the current scene and never opens or saves Playground.
         public static void Generate()
         {
-            if (File.Exists(ScenePath)) return;
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 throw new InvalidOperationException("Остановите Play Mode перед созданием сцены.");
+            if (File.Exists(ScenePath)) return;
             Directory.CreateDirectory(Generated);
             Directory.CreateDirectory(Root + "/Scenes");
             AssetDatabase.Refresh();
@@ -160,15 +160,34 @@ namespace MadMachines.Networking.Editor
         private static void AddReplication(GameObject target)
         {
             target.AddComponent<NetworkObject>();
-            NetworkTransform transform = target.AddComponent<NetworkTransform>();
-            transform.AuthorityMode = NetworkTransform.AuthorityModes.Server;
-            transform.Interpolate = true;
-            transform.SyncScaleX = false;
-            transform.SyncScaleY = false;
-            transform.SyncScaleZ = false;
-            NetworkRigidbody rigidbody = target.AddComponent<NetworkRigidbody>();
-            rigidbody.AutoUpdateKinematicState = true;
-            rigidbody.UseRigidBodyForMotion = false;
+            target.AddComponent<NetworkPhysicsState>();
+        }
+
+        [MenuItem("Tools/Mad Machines/Network/Upgrade sandbox replication")]
+        public static void UpgradeReplication()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+                throw new InvalidOperationException("Остановите Play Mode перед миграцией prefab.");
+            foreach (string name in new[] { "NetworkVehicle", "NetworkProjectile" })
+            {
+                string path = Generated + "/" + name + ".prefab";
+                if (!File.Exists(path)) continue;
+                GameObject contents = PrefabUtility.LoadPrefabContents(path);
+                try
+                {
+                    NetworkRigidbody oldBody = contents.GetComponent<NetworkRigidbody>();
+                    NetworkTransform oldTransform = contents.GetComponent<NetworkTransform>();
+                    if (oldBody == null && oldTransform == null && contents.GetComponent<NetworkPhysicsState>() != null) continue;
+                    if (oldBody != null) UnityEngine.Object.DestroyImmediate(oldBody);
+                    if (oldTransform != null) UnityEngine.Object.DestroyImmediate(oldTransform);
+                    if (contents.GetComponent<NetworkPhysicsState>() == null) contents.AddComponent<NetworkPhysicsState>();
+                    if (PrefabUtility.SaveAsPrefabAsset(contents, path) == null)
+                        throw new IOException("Не удалось обновить " + path);
+                    Debug.Log("[MM NET] Обновлена репликация " + path + "; GUID и остальные ссылки сохранены.");
+                }
+                finally { PrefabUtility.UnloadPrefabContents(contents); }
+            }
+            AssetDatabase.SaveAssets();
         }
 
         private static Transform Child(string name, Transform parent, Vector3 position)
@@ -211,6 +230,7 @@ namespace MadMachines.Networking.Editor
             if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target))
                 throw new BuildFailedException("Установите через Unity Hub модуль поддержки " + target + ", а для сервера — Dedicated Server Build Support.");
             Generate();
+            ValidateSandbox();
             // Explicit scene and subtarget keep the local game's build command and scene list intact.
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
@@ -224,6 +244,42 @@ namespace MadMachines.Networking.Editor
             if (report.summary.result != BuildResult.Succeeded)
                 throw new BuildFailedException($"Сборка {target}/{subtarget}: {report.summary.result}. См. Editor.log; проверьте установленный Dedicated Server Build Support.");
             Debug.Log("[MM NET] Сборка сохранена: " + Path.GetFullPath(output));
+        }
+
+        [MenuItem("Tools/Mad Machines/Network/Validate sandbox assets")]
+        public static void ValidateSandbox()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+                throw new InvalidOperationException("Проверяйте ресурсы вне Play Mode.");
+            if (!File.Exists(ScenePath)) throw new InvalidOperationException("Сначала выполните Create or open sandbox.");
+            Scene previousScene = SceneManager.GetActiveScene();
+            Scene scene = SceneManager.GetSceneByPath(ScenePath);
+            bool opened = !scene.IsValid() || !scene.isLoaded;
+            if (opened) scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Additive);
+            try
+            {
+                NetworkSandboxSession session = null;
+                foreach (GameObject root in scene.GetRootGameObjects())
+                {
+                    foreach (NetworkSandboxSession candidate in root.GetComponentsInChildren<NetworkSandboxSession>(true))
+                    {
+                        if (session != null) throw new InvalidOperationException("NetworkSandbox содержит несколько сессий.");
+                        session = candidate;
+                    }
+                    if (root.GetComponentInChildren<Camera>(true) != null || root.GetComponentInChildren<AudioListener>(true) != null ||
+                        root.GetComponentInChildren<NetworkClientView>(true) != null || root.GetComponentInChildren<NetworkManager>(true) != null ||
+                        root.GetComponentInChildren<NetworkObject>(true) != null)
+                        throw new InvalidOperationException("NetworkSandbox должен создавать камеру, HUD, NetworkManager и сетевые объекты только при запуске.");
+                }
+                if (session == null || !session.isActiveAndEnabled) throw new InvalidOperationException("Нет активной Network session.");
+                session.ValidateConfiguration();
+                Debug.Log("[MM NET] Ссылки и настройки NetworkSandbox проверены. Сеть и физика этой командой не запускаются.");
+            }
+            finally
+            {
+                if (previousScene.IsValid() && previousScene.isLoaded) SceneManager.SetActiveScene(previousScene);
+                if (opened) EditorSceneManager.CloseScene(scene, true);
+            }
         }
     }
 }

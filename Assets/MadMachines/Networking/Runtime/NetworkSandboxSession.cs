@@ -4,6 +4,7 @@ using System.IO;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace MadMachines.Networking
 {
@@ -20,6 +21,12 @@ namespace MadMachines.Networking
         private bool quitAfterShutdown;
         private bool applicationQuitting;
         private int exitCode;
+        private bool ready;
+        private float previousFixedDeltaTime;
+        private bool changedFixedDeltaTime;
+        private float previousTimeScale;
+        private int previousTargetFrameRate;
+        private bool previousRunInBackground;
 
         public NetworkManager Manager { get; private set; }
         public UnityTransport Transport { get; private set; }
@@ -27,7 +34,7 @@ namespace MadMachines.Networking
         public ushort Port => options?.Port ?? 7777;
         public string Status { get; private set; } = "Отключено";
         public bool IsServerProcess { get; private set; }
-        public bool CanConnect => Manager != null && !Manager.IsListening && !Manager.ShutdownInProgress;
+        public bool CanConnect => ready && !IsServerProcess && Manager != null && !Manager.IsListening && !Manager.ShutdownInProgress;
 
         public void Configure(GameObject vehicle, GameObject projectile, Transform[] starts)
         {
@@ -51,21 +58,32 @@ namespace MadMachines.Networking
             {
                 options = NetworkLaunchOptions.Parse(arguments, server);
                 IsServerProcess = options.Server;
+                ValidateConfiguration();
+                if (NetworkManager.Singleton != null || GetComponent<NetworkManager>() != null)
+                    throw new InvalidOperationException("Уже существует NetworkManager. Откройте только NetworkSandbox и перезапустите Play Mode.");
+                previousFixedDeltaTime = Time.fixedDeltaTime;
+                previousTimeScale = Time.timeScale;
+                previousTargetFrameRate = Application.targetFrameRate;
+                previousRunInBackground = Application.runInBackground;
+                changedFixedDeltaTime = true;
                 Application.runInBackground = true;
+                Time.timeScale = 1;
                 Time.fixedDeltaTime = 0.02f;
-                if (vehiclePrefab == null || projectilePrefab == null || spawnPoints == null || spawnPoints.Length != 2)
-                    throw new InvalidOperationException("Сначала создайте NetworkSandbox через меню Tools → Mad Machines → Network.");
 
                 Transport = gameObject.AddComponent<UnityTransport>();
+                Scene sessionScene = gameObject.scene;
                 Manager = gameObject.AddComponent<NetworkManager>();
+                // NGO moves its root to DontDestroyOnLoad in OnEnable. This sandbox is scene-scoped.
+                SceneManager.MoveGameObjectToScene(gameObject, sessionScene);
                 Manager.NetworkConfig = new NetworkConfig
                 {
                     NetworkTransport = Transport,
-                    ProtocolVersion = 1,
+                    ProtocolVersion = 2,
                     TickRate = 30,
                     EnableSceneManagement = false,
                     ConnectionApproval = true,
                     AutoSpawnPlayerPrefabClientSide = false,
+                    EnsureNetworkVariableLengthSafety = true,
                     ForceSamePrefabs = true
                 };
                 Manager.AddNetworkPrefab(vehiclePrefab);
@@ -76,6 +94,7 @@ namespace MadMachines.Networking
                 Manager.OnTransportFailure += TransportFailed;
                 Manager.OnServerStopped += ServerStopped;
                 Manager.OnClientStopped += ClientStopped;
+                ready = true;
 
                 if (IsServerProcess)
                 {
@@ -97,12 +116,27 @@ namespace MadMachines.Networking
             }
             catch (Exception error)
             {
+                ready = false;
+                if (Manager != null && Manager.IsListening) Manager.Shutdown();
                 Status = "Ошибка запуска: " + error.Message;
                 Debug.LogError("[MM NET] " + error);
                 if (IsServerProcess) StopServer(1);
                 else if (GetComponent<NetworkClientView>() == null)
                     gameObject.AddComponent<NetworkClientView>().Configure(this);
             }
+        }
+
+        public void ValidateConfiguration()
+        {
+            if (transform.parent != null)
+                throw new InvalidOperationException("Network session должна быть корневым объектом сцены.");
+            if (spawnPoints == null || spawnPoints.Length != 2 || spawnPoints[0] == null || spawnPoints[1] == null || spawnPoints[0] == spawnPoints[1])
+                throw new InvalidOperationException("NetworkSandbox: нужны две разные точки появления.");
+            foreach (Transform start in spawnPoints)
+                if (start.gameObject.scene != gameObject.scene)
+                    throw new InvalidOperationException("NetworkSandbox: точки появления должны находиться в сцене сессии.");
+            NetworkSandboxValidation.ValidateVehicle(vehiclePrefab, projectilePrefab);
+            NetworkSandboxValidation.ValidateProjectile(projectilePrefab);
         }
 
         public void Connect(string address, string port)
@@ -119,7 +153,16 @@ namespace MadMachines.Networking
             Transport.SetConnectionData(true, address, parsed);
             Status = "Подключение…";
             Log($"Подключение к {Address}:{Port}.");
-            if (!Manager.StartClient()) Status = "Не удалось начать подключение. См. журнал.";
+            try
+            {
+                if (!Manager.StartClient()) Status = "Не удалось начать подключение. См. журнал.";
+            }
+            catch (Exception error)
+            {
+                Status = "Ошибка подключения: " + error.Message;
+                Debug.LogError("[MM NET] " + error);
+                Manager.Shutdown();
+            }
         }
 
         public void Disconnect()
@@ -133,7 +176,7 @@ namespace MadMachines.Networking
         {
             response.CreatePlayerObject = false;
             response.Pending = false;
-            if (slots.Count >= 2 || slots.ContainsKey(request.ClientNetworkId))
+            if (!ready || Manager.ShutdownInProgress || slots.Count >= 2 || slots.ContainsKey(request.ClientNetworkId))
             {
                 response.Approved = false;
                 response.Reason = "На сервере уже два игрока.";
@@ -155,13 +198,30 @@ namespace MadMachines.Networking
                 return;
             }
             if (players.ContainsKey(clientId) || !slots.TryGetValue(clientId, out int slot)) return;
-            Transform start = spawnPoints[slot];
-            GameObject instance = Instantiate(vehiclePrefab, start.position, start.rotation);
-            NetworkObject player = instance.GetComponent<NetworkObject>();
-            instance.GetComponent<NetworkVehicle>().InitializeServer(slot);
-            player.SpawnAsPlayerObject(clientId, true);
-            players.Add(clientId, player);
-            Log($"Игрок {clientId} подключён; машина {player.NetworkObjectId}, место {slot + 1}.");
+            GameObject instance = null;
+            try
+            {
+                Transform start = spawnPoints[slot];
+                instance = Instantiate(vehiclePrefab, start.position, start.rotation);
+                NetworkObject player = instance.GetComponent<NetworkObject>();
+                instance.GetComponent<NetworkVehicle>().InitializeServer(slot);
+                player.SpawnAsPlayerObject(clientId, true);
+                players.Add(clientId, player);
+                Log($"Игрок {clientId} подключён; машина {player.NetworkObjectId}, место {slot + 1}; машин {players.Count}/2.");
+            }
+            catch (Exception error)
+            {
+                if (instance != null)
+                {
+                    NetworkObject failed = instance.GetComponent<NetworkObject>();
+                    if (failed != null && failed.IsSpawned) failed.Despawn(true);
+                    else Destroy(instance);
+                }
+                players.Remove(clientId);
+                slots.Remove(clientId);
+                Debug.LogError($"[MM NET] Не удалось создать машину игрока {clientId}: {error}");
+                Manager.DisconnectClient(clientId, "Не удалось создать машину. См. журнал сервера.");
+            }
         }
 
         private void Disconnected(ulong clientId)
@@ -192,6 +252,7 @@ namespace MadMachines.Networking
         {
             players.Clear();
             slots.Clear();
+            ready = false;
             Log("Сервер остановлен; сетевые объекты освобождены.");
         }
 
@@ -237,6 +298,14 @@ namespace MadMachines.Networking
 
         private void OnDestroy()
         {
+            ready = false;
+            if (changedFixedDeltaTime)
+            {
+                Time.fixedDeltaTime = previousFixedDeltaTime;
+                Time.timeScale = previousTimeScale;
+                Application.targetFrameRate = previousTargetFrameRate;
+                Application.runInBackground = previousRunInBackground;
+            }
             if (Manager == null) return;
             if (!applicationQuitting && Manager.IsListening) Manager.Shutdown();
             Manager.OnClientConnectedCallback -= Connected;

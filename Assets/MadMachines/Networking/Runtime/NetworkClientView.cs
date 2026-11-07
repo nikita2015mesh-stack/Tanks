@@ -60,7 +60,7 @@ namespace MadMachines.Networking
                 }
                 else ReleaseCursor();
             }
-            if (localVehicle == null)
+            if (localVehicle == null || !localVehicle.IsSpawned)
             {
                 if (Cursor.lockState != CursorLockMode.None) ReleaseCursor();
                 return;
@@ -91,6 +91,43 @@ namespace MadMachines.Networking
                 Fire = controlling && ((mouse != null && mouse.leftButton.isPressed) || Time.realtimeSinceStartupAsDouble < fireUntil)
             });
         }
+
+#if UNITY_EDITOR
+        // Explicit user-invoked probe; never runs automatically or ships in a player.
+        public void SendInvalidCommandProbe()
+        {
+            if (localVehicle == null || !localVehicle.IsSpawned) throw new System.InvalidOperationException("Сначала подключите клиент и дождитесь машины.");
+            ReleaseCursor();
+            NetworkVehicleCommand command = new NetworkVehicleCommand { Aim = Vector3.forward, Handbrake = true };
+            command.Sequence = ++sequence;
+            command.Throttle = float.NaN;
+            localVehicle.SendCommand(command);
+            command.Sequence = ++sequence;
+            command.Throttle = 0;
+            command.Aim = new Vector3(float.PositiveInfinity, 0, 1);
+            localVehicle.SendCommand(command);
+            command.Sequence = ++sequence;
+            command.Aim = Vector3.zero;
+            localVehicle.SendCommand(command);
+            command.Sequence = ++sequence;
+            command.Aim = Vector3.forward;
+            command.Steering = 2;
+            localVehicle.SendCommand(command);
+            command.Sequence = ++sequence;
+            command.Steering = 0;
+            localVehicle.SendCommand(command);
+            localVehicle.SendCommand(command);
+            command.Sequence--;
+            localVehicle.SendCommand(command);
+            for (int i = 0; i < 20; i++)
+            {
+                command.Sequence = ++sequence;
+                localVehicle.SendCommand(command);
+            }
+            nextCommand = Time.realtimeSinceStartupAsDouble + 0.6;
+            Debug.Log("[MM NET] Отправлены неверные числа, повтор, старый номер и пачка команд. Смотрите счётчики сервера; доставка UDP не гарантирована. Ввод возобновится через 0,6 с.");
+        }
+#endif
 
         private void LateUpdate()
         {

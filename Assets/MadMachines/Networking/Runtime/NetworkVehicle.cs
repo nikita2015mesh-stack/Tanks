@@ -8,8 +8,6 @@ namespace MadMachines.Networking
     [RequireComponent(typeof(VehiclePhysics))]
     public sealed class NetworkVehicle : NetworkBehaviour
     {
-        private const double CommandTimeout = 0.25;
-        private const float ShotInterval = 1.15f;
         [SerializeField] private Transform turret;
         [SerializeField] private Transform barrel;
         [SerializeField] private Transform muzzle;
@@ -23,12 +21,18 @@ namespace MadMachines.Networking
         private readonly NetworkVariable<float> speed = new NetworkVariable<float>();
         private readonly NetworkVariable<int> hits = new NetworkVariable<int>();
         private readonly NetworkVariable<int> shots = new NetworkVariable<int>();
-        private readonly NetworkCommandGate commandGate = new NetworkCommandGate();
+        private readonly NetworkCommandBuffer commands = new NetworkCommandBuffer();
+        private readonly NetworkShotCooldown shotCooldown = new NetworkShotCooldown();
+        private readonly int[] rejected = new int[7];
         private VehiclePhysics vehicle;
-        private NetworkVehicleCommand latest;
-        private double lastCommandAt = double.NegativeInfinity;
-        private double nextShot;
         private double nextSpeedUpdate;
+        private double nextDiagnostic;
+        private int accepted;
+        private int timeouts;
+        private bool hadFreshInput;
+        private int initialSlot;
+
+        public string CommandDiagnostics => $"принято {accepted}; лимит {rejected[(int)CommandRejection.Rate]}; значения {rejected[(int)CommandRejection.Values]}; порядок {rejected[(int)CommandRejection.Sequence]}; владелец {rejected[(int)CommandRejection.Sender]}; неактивна {rejected[(int)CommandRejection.Inactive]}; тайм-ауты {timeouts}";
 
         public int Slot => slot.Value;
         public int Hits => hits.Value;
@@ -48,6 +52,19 @@ namespace MadMachines.Networking
             projectilePrefab = projectile;
         }
 
+        public void ValidateConfiguration(GameObject expectedProjectile)
+        {
+            if (turret == null || barrel == null || muzzle == null || hullRenderer == null ||
+                projectilePrefab == null || projectilePrefab.gameObject != expectedProjectile ||
+                wheelMeshes == null || wheelMeshes.Length != 4)
+                throw new System.InvalidOperationException("NetworkVehicle: отсутствуют ссылки башни, дула, корпуса, четырёх колёс или зарегистрированного снаряда.");
+            if (!turret.IsChildOf(transform) || !barrel.IsChildOf(turret) || !muzzle.IsChildOf(barrel))
+                throw new System.InvalidOperationException("NetworkVehicle: нарушена иерархия башни, ствола и дула.");
+            foreach (Transform wheel in wheelMeshes)
+                if (wheel == null || !wheel.IsChildOf(transform))
+                    throw new System.InvalidOperationException("NetworkVehicle: колесо не принадлежит машине.");
+        }
+
         private void Awake()
         {
             vehicle = GetComponent<VehiclePhysics>();
@@ -58,14 +75,25 @@ namespace MadMachines.Networking
 
         public void InitializeServer(int playerSlot)
         {
-            slot.Value = playerSlot;
-            aim.Value = transform.forward;
+            initialSlot = playerSlot;
         }
 
         public override void OnNetworkSpawn()
         {
+            commands.Reset();
+            System.Array.Clear(rejected, 0, rejected.Length);
+            accepted = timeouts = 0;
+            hadFreshInput = false;
+            shotCooldown.Reset();
+            nextSpeedUpdate = 0;
+            nextDiagnostic = Time.realtimeSinceStartupAsDouble + 5;
             vehicle.Authority = IsServer;
             vehicle.enabled = IsServer;
+            if (IsServer)
+            {
+                slot.Value = initialSlot;
+                aim.Value = transform.forward;
+            }
             ApplyAim(aim.Value, true);
             if (IsClient && hullRenderer != null)
             {
@@ -79,6 +107,8 @@ namespace MadMachines.Networking
 
         public override void OnNetworkDespawn()
         {
+            if (IsServer) Debug.Log($"[MM NET] Машина {NetworkObjectId}, итог команд: {CommandDiagnostics}.");
+            commands.Reset();
             vehicle.Submit(default);
             vehicle.Authority = false;
             vehicle.enabled = false;
@@ -86,24 +116,28 @@ namespace MadMachines.Networking
 
         public void SendCommand(NetworkVehicleCommand command)
         {
-            if (IsSpawned && IsClient && IsOwner) SubmitCommandRpc(command);
+            if (IsSpawned && isActiveAndEnabled && IsClient && IsOwner && !NetworkManager.ShutdownInProgress) SubmitCommandRpc(command);
         }
 
         [Rpc(SendTo.Server, Delivery = RpcDelivery.Unreliable, InvokePermission = RpcInvokePermission.Owner)]
         private void SubmitCommandRpc(NetworkVehicleCommand command, RpcParams rpcParams = default)
         {
-            if (!IsServer || rpcParams.Receive.SenderClientId != OwnerClientId) return;
+            if (!IsServer) return;
             double now = Time.realtimeSinceStartupAsDouble;
-            if (!commandGate.Accept(command, now)) return;
-            latest = command;
-            lastCommandAt = now;
+            bool active = IsSpawned && isActiveAndEnabled && !NetworkManager.ShutdownInProgress &&
+                NetworkManager.ConnectedClients.TryGetValue(OwnerClientId, out NetworkClient client) && client.PlayerObject == NetworkObject;
+            CommandRejection rejection = commands.Receive(command, now, rpcParams.Receive.SenderClientId, OwnerClientId, active);
+            if (rejection == CommandRejection.None) accepted++;
+            else rejected[(int)rejection]++;
         }
 
         private void FixedUpdate()
         {
             if (!IsSpawned || !IsServer) return;
             double now = Time.realtimeSinceStartupAsDouble;
-            bool fresh = now - lastCommandAt <= CommandTimeout;
+            bool fresh = commands.Sample(now, out NetworkVehicleCommand latest);
+            if (!fresh && hadFreshInput) timeouts++;
+            hadFreshInput = fresh;
             vehicle.Submit(fresh ? new VehicleCommand
             {
                 Throttle = latest.Throttle,
@@ -117,13 +151,35 @@ namespace MadMachines.Networking
             {
                 ApplyAim(latest.Aim, true);
                 aim.Value = muzzle.forward;
-                if (latest.Fire && now >= nextShot) Fire(now);
+                if (latest.Fire) Fire(now);
             }
             if (now >= nextSpeedUpdate)
             {
                 speed.Value = vehicle.Speed;
                 nextSpeedUpdate = now + 0.1;
             }
+            if (now >= nextDiagnostic)
+            {
+                Debug.Log($"[MM NET] Машина {NetworkObjectId}, владелец {OwnerClientId}: {CommandDiagnostics}.");
+                nextDiagnostic = now + 5;
+            }
+        }
+
+        private void OnDisable()
+        {
+            // Retain sequence/rate protection across disable/enable of this same spawn.
+            commands.ClearInput();
+            if (vehicle == null) return;
+            vehicle.Submit(new VehicleCommand { Handbrake = true });
+            vehicle.Authority = false;
+            vehicle.enabled = false;
+        }
+
+        private void OnEnable()
+        {
+            if (!IsSpawned || vehicle == null) return;
+            vehicle.Authority = IsServer;
+            vehicle.enabled = IsServer;
         }
 
         private void LateUpdate()
@@ -132,7 +188,7 @@ namespace MadMachines.Networking
             ApplyAim(aim.Value, false);
             // Sandbox-only primitive wheels; the single-player visual system is not involved.
             if (wheelMeshes == null) return;
-            for (int i = 0; i < wheelMeshes.Length; i++)
+            for (int i = 0; i < Mathf.Min(4, wheelMeshes.Length); i++)
             {
                 if (wheelMeshes[i] == null) continue;
                 wheelMeshes[i].localRotation = Quaternion.Euler(0f, i < 2 ? steering.Value * 28f : 0f, 90f);
@@ -156,9 +212,14 @@ namespace MadMachines.Networking
 
         private void Fire(double now)
         {
-            nextShot = now + ShotInterval;
+            if (!shotCooldown.TryBegin(now)) return;
             // Do not allow the barrel to shoot through a wall or through another chassis.
             Vector3 path = muzzle.position - turret.position;
+            // SphereCast does not report colliders already overlapping its starting sphere.
+            foreach (Collider overlap in Physics.OverlapSphere(turret.position, NetworkBallisticProjectile.Radius, 1, QueryTriggerInteraction.Ignore))
+            {
+                if (overlap.attachedRigidbody != Body) return;
+            }
             foreach (RaycastHit hit in Physics.SphereCastAll(turret.position, NetworkBallisticProjectile.Radius,
                 path.normalized, path.magnitude, 1, QueryTriggerInteraction.Ignore))
             {
@@ -169,8 +230,18 @@ namespace MadMachines.Networking
                 if (overlap.attachedRigidbody != Body) return;
             }
             NetworkBallisticProjectile projectile = Instantiate(projectilePrefab, muzzle.position, Quaternion.LookRotation(muzzle.forward));
-            projectile.NetworkObject.Spawn(true);
-            projectile.Launch(this, muzzle.forward * 38f + Body.linearVelocity);
+            try
+            {
+                projectile.NetworkObject.Spawn(true);
+                projectile.Launch(this, muzzle.forward * 38f + Body.linearVelocity);
+            }
+            catch (System.Exception error)
+            {
+                if (projectile.NetworkObject.IsSpawned) projectile.NetworkObject.Despawn(true);
+                else Destroy(projectile.gameObject);
+                Debug.LogError($"[MM NET] Ошибка создания снаряда машины {NetworkObjectId}: {error}");
+                return;
+            }
             Body.AddForceAtPosition(-muzzle.forward * 1600f, muzzle.position, ForceMode.Impulse);
             shots.Value++;
         }
