@@ -19,3 +19,7 @@
 /.vs/
 /.idea/
 /.utmp/
+
+# Third-party licensed assets - local only
+/Assets/_ThirdPartyLocal/
+/Assets/_ThirdPartyLocal.meta
