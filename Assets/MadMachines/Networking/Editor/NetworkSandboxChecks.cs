@@ -9,7 +9,7 @@ namespace MadMachines.Networking.Editor
     // Deliberately opt-in: no InitializeOnLoad, no automatic Play Mode and no test-runner dependency.
     public static class NetworkSandboxChecks
     {
-        [MenuItem("Tools/Mad Machines/Network/Checks/Run command policy checks")]
+        [MenuItem("Tools/Mad Machines/Networking/Checks/Run command policy checks")]
         public static void CheckCommandPolicy()
         {
             NetworkVehicleCommand command = Valid(1);
@@ -101,10 +101,32 @@ namespace MadMachines.Networking.Editor
                 catch (ArgumentException) { rejected = true; }
                 Require(rejected, "Отказ неверных аргументов запуска");
             }
-            Debug.Log("[MM NET CHECK] Проверки команд, перезарядки, интерполяции и аргументов завершены. RPC, PhysX и соединение здесь не проверяются.");
+            NetworkDevelopmentSettings settings = new NetworkDevelopmentSettings
+            {
+                mode = NetworkConnectionMode.RemoteOnline,
+                localPort = 7781,
+                remoteAddress = "192.0.2.5",
+                remotePort = 7782
+            };
+            NetworkLaunchOptions remote = NetworkLaunchOptions.Parse(Array.Empty<string>(), false, settings);
+            Require(remote.Address == settings.remoteAddress && remote.Port == settings.remotePort, "Настройки удалённого подключения");
+            NetworkLaunchOptions local = NetworkLaunchOptions.Parse(new[] { "-mm-mode", "development" }, false, settings);
+            Require(local.Address == NetworkDevelopmentSettings.LocalAddress && local.Port == settings.localPort, "Локальный режим переопределяет удалённый");
+            NetworkLaunchOptions offline = NetworkLaunchOptions.Parse(new[] { "-mm-mode", "offline" }, false, settings);
+            Require(offline.Mode == NetworkConnectionMode.Offline, "Режим Offline");
+
+            byte[] handshake = NetworkSessionProtocol.CreatePayload(1, 2);
+            Require(NetworkSessionProtocol.CheckCompatibility(handshake, handshake) == null, "Совместимый протокол");
+            Require(NetworkSessionProtocol.CheckCompatibility(Array.Empty<byte>(), handshake) != null, "Отсутствующий заголовок");
+            Require(NetworkSessionProtocol.CheckCompatibility(NetworkSessionProtocol.CreatePayload(2, 1), handshake) != null, "Разные prefab");
+            byte[] oldHandshake = (byte[])handshake.Clone();
+            oldHandshake[2] ^= 1;
+            Require(NetworkSessionProtocol.CheckCompatibility(oldHandshake, handshake).StartsWith(NetworkSessionProtocol.RejectionPrefix, StringComparison.Ordinal),
+                "Отказ несовместимого протокола с причиной");
+            Debug.Log("[MM NET CHECK] Проверки команд, перезарядки, интерполяции, аргументов и протокола завершены. Сетевое соединение и PhysX проверяются отдельно.");
         }
 
-        [MenuItem("Tools/Mad Machines/Network/Checks/Inspect running session")]
+        [MenuItem("Tools/Mad Machines/Networking/Checks/Inspect running session")]
         public static void InspectSession()
         {
             NetworkManager manager = NetworkManager.Singleton;
@@ -148,7 +170,7 @@ namespace MadMachines.Networking.Editor
             Debug.Log($"[MM NET CHECK] Текущий снимок согласован: машин {vehicles}, снарядов {projectiles}. Для сценария двух клиентов ожидаются две машины.");
         }
 
-        [MenuItem("Tools/Mad Machines/Network/Checks/Send invalid commands from client")]
+        [MenuItem("Tools/Mad Machines/Networking/Checks/Send invalid commands from client")]
         public static void SendInvalidCommands()
         {
             NetworkClientView view = UnityEngine.Object.FindFirstObjectByType<NetworkClientView>();
@@ -156,7 +178,7 @@ namespace MadMachines.Networking.Editor
             view.SendInvalidCommandProbe();
         }
 
-        [MenuItem("Tools/Mad Machines/Network/Checks/Request client teleport")]
+        [MenuItem("Tools/Mad Machines/Networking/Checks/Request client teleport")]
         public static void RequestClientTeleport()
         {
             NetworkManager manager = NetworkManager.Singleton;

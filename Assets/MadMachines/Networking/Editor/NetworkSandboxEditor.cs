@@ -17,7 +17,7 @@ namespace MadMachines.Networking.Editor
         private const string Generated = Root + "/Generated";
         public const string ScenePath = Root + "/Scenes/NetworkSandbox.unity";
 
-        [MenuItem("Tools/Mad Machines/Network/Create or open sandbox")]
+        [MenuItem("Tools/Mad Machines/Networking/Create or open sandbox")]
         public static void OpenSandbox()
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
@@ -163,7 +163,7 @@ namespace MadMachines.Networking.Editor
             target.AddComponent<NetworkPhysicsState>();
         }
 
-        [MenuItem("Tools/Mad Machines/Network/Upgrade sandbox replication")]
+        [MenuItem("Tools/Mad Machines/Networking/Upgrade sandbox replication")]
         public static void UpgradeReplication()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
@@ -214,24 +214,31 @@ namespace MadMachines.Networking.Editor
             return item;
         }
 
-        [MenuItem("Tools/Mad Machines/Network/Build Windows client")]
-        public static void BuildWindowsClient() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Player, "Builds/Network/Client/MadMachinesClient.exe");
+        [MenuItem("Tools/Mad Machines/Networking/Build Windows client")]
+        public static void BuildWindowsClient() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Player,
+            NetworkBuildOutput.WindowsClient, NetworkBuildOutput.WindowsClientExecutable);
 
-        [MenuItem("Tools/Mad Machines/Network/Build Windows dedicated server")]
-        public static void BuildWindowsServer() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Server, "Builds/Network/WindowsServer/MadMachinesServer.exe");
+        [MenuItem("Tools/Mad Machines/Networking/Build Development Server", false, 103)]
+        public static void BuildWindowsServer() => BuildDevelopmentServer();
 
-        [MenuItem("Tools/Mad Machines/Network/Build Linux dedicated server")]
-        public static void BuildLinuxServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server, "Builds/Network/LinuxServer/MadMachinesServer.x86_64");
+        internal static bool BuildDevelopmentServer() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Server,
+            NetworkBuildOutput.WindowsServer, NetworkBuildOutput.WindowsServerExecutable);
 
-        private static void Build(BuildTarget target, StandaloneBuildSubtarget subtarget, string output)
+        [MenuItem("Tools/Mad Machines/Networking/Build Linux dedicated server")]
+        public static void BuildLinuxServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
+            NetworkBuildOutput.LinuxServer, NetworkBuildOutput.LinuxServerExecutable);
+
+        private static bool Build(BuildTarget target, StandaloneBuildSubtarget subtarget, string outputTarget, string executable)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode) throw new BuildFailedException("Остановите Play Mode перед сборкой.");
-            if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return false;
             if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target))
                 throw new BuildFailedException("Установите через Unity Hub модуль поддержки " + target + ", а для сервера — Dedicated Server Build Support.");
             Generate();
             ValidateSandbox();
-            // Explicit scene and subtarget keep the local game's build command and scene list intact.
+            // Build into a new directory so a running player and the previous publication stay usable.
+            string id = Guid.NewGuid().ToString("N");
+            string output = NetworkBuildOutput.GetBuildPath(outputTarget, executable, id);
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
@@ -241,12 +248,14 @@ namespace MadMachines.Networking.Editor
                 subtarget = (int)subtarget,
                 options = BuildOptions.None
             });
-            if (report.summary.result != BuildResult.Succeeded)
-                throw new BuildFailedException($"Сборка {target}/{subtarget}: {report.summary.result}. См. Editor.log; проверьте установленный Dedicated Server Build Support.");
-            Debug.Log("[MM NET] Сборка сохранена: " + Path.GetFullPath(output));
+            if (report.summary.result != BuildResult.Succeeded || !File.Exists(output))
+                throw new BuildFailedException($"Сборка {target}/{subtarget}: {report.summary.result}. Проверьте Editor.log и установленные модули платформы.");
+            NetworkBuildOutput.Publish(outputTarget, id);
+            Debug.Log("[MM NET] Опубликована сборка: " + output);
+            return true;
         }
 
-        [MenuItem("Tools/Mad Machines/Network/Validate sandbox assets")]
+        [MenuItem("Tools/Mad Machines/Networking/Validate sandbox assets")]
         public static void ValidateSandbox()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)

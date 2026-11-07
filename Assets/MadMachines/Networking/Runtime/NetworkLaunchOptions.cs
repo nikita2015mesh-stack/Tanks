@@ -4,18 +4,23 @@ using System.Net.Sockets;
 
 namespace MadMachines.Networking
 {
-    // These switches belong to this sandbox and do not change Unity/UTP global settings.
+    // Explicit command-line options take precedence over the current Editor user's settings.
     public sealed class NetworkLaunchOptions
     {
         public bool Server;
-        public string Address = "127.0.0.1";
+        public NetworkConnectionMode Mode { get; set; }
+        public string Address;
         public string BindAddress = "0.0.0.0";
-        public ushort Port = 7777;
+        public ushort Port;
         public string StopFile;
 
-        public static NetworkLaunchOptions Parse(string[] arguments, bool serverByDefault)
+        public static NetworkLaunchOptions Parse(string[] arguments, bool serverByDefault, NetworkDevelopmentSettings settings = null)
         {
-            NetworkLaunchOptions options = new NetworkLaunchOptions { Server = serverByDefault };
+            settings ??= new NetworkDevelopmentSettings();
+            NetworkLaunchOptions options = new NetworkLaunchOptions { Server = serverByDefault, Mode = settings.mode };
+            string address = null;
+            ushort? port = null;
+            bool explicitMode = false;
             for (int i = 0; i < arguments.Length; i++)
             {
                 string key = arguments[i];
@@ -25,27 +30,54 @@ namespace MadMachines.Networking
                     options.Server = true;
                     continue;
                 }
-                if (i + 1 >= arguments.Length || arguments[i + 1].StartsWith("-"))
+                if (i + 1 >= arguments.Length || arguments[i + 1].StartsWith("-", StringComparison.Ordinal))
                     throw new ArgumentException("Не задано значение " + key);
                 string value = arguments[++i];
                 switch (key)
                 {
-                    case "-mm-address": options.Address = value; break;
+                    case "-mm-mode":
+                        options.Mode = ParseMode(value);
+                        explicitMode = true;
+                        break;
+                    case "-mm-address": address = value; break;
                     case "-mm-bind": options.BindAddress = value; break;
                     case "-mm-port":
-                        if (!ushort.TryParse(value, out options.Port) || options.Port == 0)
+                        if (!ushort.TryParse(value, out ushort parsed) || parsed == 0)
                             throw new ArgumentException("Порт должен быть числом от 1 до 65535.");
+                        port = parsed;
                         break;
                     case "-mm-stop-file": options.StopFile = value; break;
                     default: throw new ArgumentException("Неизвестный параметр: " + key);
                 }
             }
-            if (!IsIpv4(options.Address) || options.Address == "0.0.0.0" || !IsIpv4(options.BindAddress))
-                throw new ArgumentException("Укажите числовой IPv4; адрес клиента не может быть 0.0.0.0.");
+            if (!explicitMode && address != null && !options.Server) options.Mode = NetworkConnectionMode.RemoteOnline;
+            bool remote = !options.Server && options.Mode == NetworkConnectionMode.RemoteOnline;
+            options.Address = address ?? (remote ? settings.remoteAddress : NetworkDevelopmentSettings.LocalAddress);
+            options.Port = port ?? (ushort)(remote ? settings.remotePort : settings.localPort);
+            if (!IsClientAddress(options.Address) || !IsIpv4(options.BindAddress))
+                throw new ArgumentException("Укажите числовой IPv4. Адрес клиента не может быть 0.0.0.0.");
+            options.Address = IPAddress.Parse(options.Address).ToString();
+            options.BindAddress = IPAddress.Parse(options.BindAddress).ToString();
             return options;
         }
 
-        public static bool IsIpv4(string value)
+        private static NetworkConnectionMode ParseMode(string value)
+        {
+            switch (value.ToLowerInvariant())
+            {
+                case "offline": return NetworkConnectionMode.Offline;
+                case "development": return NetworkConnectionMode.DevelopmentOnline;
+                case "remote": return NetworkConnectionMode.RemoteOnline;
+                default: throw new ArgumentException("Режим подключения: offline, development или remote.");
+            }
+        }
+
+        public static bool IsClientAddress(string value)
+        {
+            return IsIpv4(value) && !IPAddress.Parse(value).Equals(IPAddress.Any);
+        }
+
+        private static bool IsIpv4(string value)
         {
             return IPAddress.TryParse(value, out IPAddress address) && address.AddressFamily == AddressFamily.InterNetwork;
         }

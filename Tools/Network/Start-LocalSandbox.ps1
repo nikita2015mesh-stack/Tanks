@@ -1,16 +1,40 @@
 ﻿param(
     [ValidateRange(1, 65535)]
-    [int]$Port = 7777,
+    [int]$Port,
     [string]$ProjectPath = (Join-Path $PSScriptRoot '../..')
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path -LiteralPath $ProjectPath).Path
-$serverExe = Join-Path $projectRoot 'Builds/Network/WindowsServer/MadMachinesServer.exe'
-$clientExe = Join-Path $projectRoot 'Builds/Network/Client/MadMachinesClient.exe'
-foreach ($executable in @($serverExe, $clientExe)) {
+function Get-PublishedExecutable([string]$target, [string]$name) {
+    $targetRoot = Join-Path $projectRoot "Builds/Network/$target"
+    $pointer = Join-Path $targetRoot 'active.txt'
+    if (-not (Test-Path -LiteralPath $pointer -PathType Leaf)) {
+        throw "Сначала соберите Windows client и Development Server. Отсутствует $pointer"
+    }
+    $buildId = (Get-Content -LiteralPath $pointer -Raw).Trim()
+    if ($buildId -notmatch '^[0-9a-fA-F]{32}$') {
+        throw "Неверный идентификатор сборки: $pointer"
+    }
+    $executable = Join-Path $targetRoot "versions/$buildId/$name"
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
-        throw "Сначала соберите Windows client и Windows dedicated server: отсутствует $executable"
+        throw "Файл сборки отсутствует: $executable"
+    }
+    $executable
+}
+
+$serverExe = Get-PublishedExecutable 'WindowsServer' 'MadMachinesServer.exe'
+$clientExe = Get-PublishedExecutable 'Client' 'MadMachinesClient.exe'
+$settingsPath = Join-Path $projectRoot 'UserSettings/MadMachines.Networking.json'
+$portArgs = @()
+if ($PSBoundParameters.ContainsKey('Port')) {
+    $portArgs = @('-mm-port', "$Port")
+} elseif (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+    $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($null -ne $settings.localPort) {
+        $localPort = [int]$settings.localPort
+        if ($localPort -lt 1 -or $localPort -gt 65535) { throw "Некорректный localPort: $settingsPath" }
+        $portArgs = @('-mm-port', "$localPort")
     }
 }
 
@@ -24,16 +48,16 @@ $serverProcess = $null
 $clients = @()
 
 try {
-    $serverProcess = Start-Process -FilePath $serverExe -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -ArgumentList @(
-        '-batchmode', '-nographics', '-mm-bind', '127.0.0.1', '-mm-port', "$Port",
+    $serverProcess = Start-Process -FilePath $serverExe -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -ArgumentList (@(
+        '-batchmode', '-nographics', '-mm-bind', '127.0.0.1',
         '-mm-stop-file', ('"' + $stopFile + '"'), '-logFile', ('"' + $serverLog + '"')
-    )
+    ) + $portArgs)
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     $serverReady = $false
     do {
         if ($serverProcess.HasExited) { throw "Сервер завершился с кодом $($serverProcess.ExitCode). Журнал: $serverLog" }
         if (Test-Path -LiteralPath $serverLog) {
-            $serverReady = [bool](Select-String -LiteralPath $serverLog -SimpleMatch '[MM NET] Сервер готов.' -Quiet)
+            $serverReady = [bool](Select-String -LiteralPath $serverLog -SimpleMatch '[MM NET] SERVER_READY' -Quiet)
         }
         if (-not $serverReady) { Start-Sleep -Milliseconds 200 }
     } while (-not $serverReady -and [DateTime]::UtcNow -lt $deadline)
@@ -41,10 +65,10 @@ try {
 
     for ($index = 1; $index -le 2; $index++) {
         $clientLog = Join-Path $logDirectory "client-$index.log"
-        $clients += Start-Process -FilePath $clientExe -WorkingDirectory $projectRoot -PassThru -ArgumentList @(
-            '-mm-address', '127.0.0.1', '-mm-port', "$Port", '-screen-fullscreen', '0',
+        $clients += Start-Process -FilePath $clientExe -WorkingDirectory $projectRoot -PassThru -ArgumentList (@(
+            '-mm-mode', 'development', '-screen-fullscreen', '0',
             '-screen-width', '960', '-screen-height', '600', '-logFile', ('"' + $clientLog + '"')
-        )
+        ) + $portArgs)
     }
 }
 catch {

@@ -21,4 +21,5 @@
 
 - [Текущее состояние и проверка](Docs/CURRENT_STATE.md) · [Архитектура](Docs/ARCHITECTURE.md)
 - [Видение игры](Docs/VISION.md) · [Этапы разработки](Docs/ROADMAP.md) · [Ближайшие задачи](Docs/BACKLOG.md)
+- [Сетевой полигон и локальный Dedicated Server](Docs/NETWORKING.md)
 - [Банк идей](Docs/IDEAS.md) · [Ресурсы и лицензии](Docs/ASSETS.md) · [Инструкции агентам](AGENTS.md)

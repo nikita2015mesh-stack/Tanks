@@ -19,6 +19,7 @@ namespace MadMachines.Networking
         private double fireUntil;
         private uint sequence;
         private bool hasFocus = true;
+        private GUIStyle statusStyle;
 
         public void Configure(NetworkSandboxSession value)
         {
@@ -30,6 +31,7 @@ namespace MadMachines.Networking
         private void Start()
         {
             GameObject cameraObject = new GameObject("Network client camera");
+            cameraObject.transform.SetParent(transform, false);
             view = cameraObject.AddComponent<Camera>();
             cameraObject.AddComponent<AudioListener>();
             view.nearClipPlane = 0.1f;
@@ -37,6 +39,11 @@ namespace MadMachines.Networking
             view.fieldOfView = 65f;
             view.backgroundColor = new Color(0.12f, 0.17f, 0.23f);
             view.clearFlags = CameraClearFlags.SolidColor;
+            ResetCamera();
+        }
+
+        private void ResetCamera()
+        {
             view.transform.SetPositionAndRotation(new Vector3(0f, 30f, -35f), Quaternion.Euler(35f, 0f, 0f));
         }
 
@@ -56,7 +63,11 @@ namespace MadMachines.Networking
                     if (hasFocus) CaptureCursor();
                     MoveCamera(true);
                 }
-                else ReleaseCursor();
+                else
+                {
+                    ReleaseCursor();
+                    ResetCamera();
+                }
             }
             if (localVehicle == null || !localVehicle.IsSpawned)
             {
@@ -179,8 +190,11 @@ namespace MadMachines.Networking
             if (session == null) return;
             GUILayout.BeginArea(new Rect(12f, 12f, 430f, 330f), GUI.skin.box);
             GUILayout.Label("Безумные машины — сетевой полигон");
-            GUILayout.Label(session.Status);
-            GUILayout.Label($"Сервер: {session.Address}:{session.Port}");
+            statusStyle ??= new GUIStyle(GUI.skin.label) { wordWrap = true };
+            GUILayout.Label(session.Status, statusStyle);
+            string mode = session.Mode == NetworkConnectionMode.Offline ? "Автономно" :
+                session.Mode == NetworkConnectionMode.DevelopmentOnline ? "Локальный сервер" : "Удалённый сервер";
+            GUILayout.Label($"{mode} · {session.Address}:{session.Port} · протокол {NetworkSessionProtocol.Version}");
             if (session.Manager != null && session.Manager.IsConnectedClient)
             {
                 ulong rtt = session.Transport.GetCurrentRtt(NetworkManager.ServerClientId);
@@ -196,7 +210,7 @@ namespace MadMachines.Networking
             port = GUILayout.TextField(port, 5, GUILayout.Width(65f));
             GUILayout.EndHorizontal();
             if (GUILayout.Button("Подключиться")) session.Connect(address, port);
-            GUI.enabled = !session.CanConnect;
+            GUI.enabled = session.CanDisconnect;
             if (GUILayout.Button("Отключиться")) session.Disconnect();
             GUI.enabled = true;
             GUILayout.Label("WASD — движение · Пробел — ручник\nМышь — наведение · ЛКМ — пушка\nEsc — освободить курсор; сервер продолжает игру.");

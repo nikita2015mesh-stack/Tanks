@@ -58,7 +58,7 @@ namespace MadMachines.Networking
 
         private void FixedUpdate()
         {
-            if (!IsServer || !IsSpawned || finished) return;
+            if (!IsServer || !IsSpawned || finished || NetworkManager.ShutdownInProgress) return;
             if (Time.realtimeSinceStartupAsDouble >= expires)
             {
                 finished = true;
@@ -100,7 +100,7 @@ namespace MadMachines.Networking
 
         private void Impact(Collider target, Vector3 point)
         {
-            if (finished || !IsServer || !IsSpawned) return;
+            if (finished || !IsServer || !IsSpawned || NetworkManager.ShutdownInProgress) return;
             finished = true;
             Rigidbody affected = target.attachedRigidbody;
             if (affected != null && !affected.isKinematic)
@@ -119,6 +119,7 @@ namespace MadMachines.Networking
         [Rpc(SendTo.NotServer, InvokePermission = RpcInvokePermission.Server)]
         private void ShowImpactRpc(Vector3 point)
         {
+            if (!IsClient || IsServer || NetworkManager.ShutdownInProgress) return;
             GameObject flash = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             flash.name = "Network impact presentation";
             flash.layer = 2;

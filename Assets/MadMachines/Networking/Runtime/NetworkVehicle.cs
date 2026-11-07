@@ -240,6 +240,7 @@ namespace MadMachines.Networking
             {
                 projectile = Instantiate(projectilePrefab, muzzle.position, Quaternion.LookRotation(muzzle.forward));
                 projectile.NetworkObject.Spawn(true);
+                if (!projectile.IsSpawned) throw new System.InvalidOperationException("NGO не создал снаряд.");
                 projectile.Launch(this, muzzle.forward * 38f + Body.linearVelocity);
             }
             catch (System.Exception error)
