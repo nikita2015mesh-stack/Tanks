@@ -24,7 +24,7 @@ namespace MadMachines
                 Transform anchor = wheelAnchors[i];
                 if (anchor == null) continue;
                 anchor.position = vehicle.transform.TransformPoint(vehicle.GetWheelPosition(i));
-                anchor.rotation = vehicle.transform.rotation * Quaternion.Euler(0f, vehicle.GetWheelSteering(i), 90f);
+                anchor.rotation = vehicle.transform.rotation * Quaternion.Euler(0f, vehicle.GetWheelSteering(i), 0f);
             }
         }
     }
