@@ -6,7 +6,7 @@
 
 Откройте **интеграционный worktree** в Unity **6000.6.8f1** и дождитесь импорта. Для первой проверки нужны модули **Windows Build Support** и **Windows Dedicated Server Build Support**. Все команды ниже находятся в **Tools → Mad Machines → Networking**.
 
-1. Выполните **Build Development Server**. При первом вызове Unity создаст ресурсы и сцену NetworkSandbox. Если в этой копии уже есть prefab из NETWORK 01, перед сборкой выполните **Upgrade sandbox replication**. Команда обновляет два prefab на месте, сохраняя пути и GUID.
+1. Выполните **Build Development Server**. При первом вызове Unity создаст ресурсы и сцену NetworkSandbox. Если в редакторе открыт только чистый Untitled, NetworkSandbox откроется на его месте. Если у Untitled есть правки, сохраните сцену перед сборкой. Если в этой копии уже есть prefab из NETWORK 01, перед сборкой выполните **Upgrade sandbox replication**. Команда обновляет два prefab на месте, сохраняя пути и GUID.
 2. Выполните **Start Development Server**. Дождитесь «Сервер готов» в Console или проверьте **Development Server Status**. Ожидаемый адрес по умолчанию — `127.0.0.1:7777/UDP`.
 3. Выполните **Create or open sandbox** и нажмите **Play**. Убедитесь, что `Server In Editor` выключен. Клиент должен подключиться автоматически и показать одну управляемую машину. Проверьте WASD, задний ход, пробел, мышь и ЛКМ. Esc освобождает курсор, кнопка в HUD возвращает управление.
 4. Оставьте Play Mode включённым и выполните **Stop Development Server**. Дождитесь завершения процесса. Клиент должен перейти в ожидание, убрать старую машину и отпустить курсор.

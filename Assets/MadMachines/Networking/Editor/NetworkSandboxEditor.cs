@@ -26,7 +26,7 @@ namespace MadMachines.Networking.Editor
         }
 
         // This runs only when the user explicitly selects the menu or invokes a build method.
-        // Additive generation preserves the current scene and never opens or saves Playground.
+        // Keep saved scenes open. Unity cannot create a scene additively beside an untitled scene.
         public static void Generate()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
@@ -36,10 +36,14 @@ namespace MadMachines.Networking.Editor
             Directory.CreateDirectory(Root + "/Scenes");
             AssetDatabase.Refresh();
             Scene previousScene = SceneManager.GetActiveScene();
-            Scene sandbox = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
-            SceneManager.SetActiveScene(sandbox);
+            bool replaceUntitled = ShouldReplaceUntitledScene();
+            NewSceneSetup previousSetup = replaceUntitled && previousScene.rootCount == 0
+                ? NewSceneSetup.EmptyScene : NewSceneSetup.DefaultGameObjects;
+            Scene sandbox = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,
+                replaceUntitled ? NewSceneMode.Single : NewSceneMode.Additive);
             try
             {
+                SceneManager.SetActiveScene(sandbox);
                 Material ground = MaterialAsset("Ground", new Color(0.22f, 0.28f, 0.3f));
                 Material concrete = MaterialAsset("Concrete", new Color(0.48f, 0.5f, 0.55f));
                 Material hull = MaterialAsset("Hull", Color.white);
@@ -84,9 +88,30 @@ namespace MadMachines.Networking.Editor
             }
             finally
             {
-                if (previousScene.IsValid() && previousScene.isLoaded) SceneManager.SetActiveScene(previousScene);
-                EditorSceneManager.CloseScene(sandbox, true);
+                if (!replaceUntitled)
+                {
+                    if (previousScene.IsValid() && previousScene.isLoaded) SceneManager.SetActiveScene(previousScene);
+                    EditorSceneManager.CloseScene(sandbox, true);
+                }
+                else if (string.IsNullOrEmpty(sandbox.path))
+                {
+                    EditorSceneManager.NewScene(previousSetup, NewSceneMode.Single);
+                }
             }
+        }
+
+        private static bool ShouldReplaceUntitledScene()
+        {
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                Scene scene = SceneManager.GetSceneAt(i);
+                if (!string.IsNullOrEmpty(scene.path)) continue;
+                if (SceneManager.sceneCount == 1 && !scene.isDirty && EditorSceneManager.GetSceneManagerSetup().Length <= 1)
+                    return true;
+
+                throw new InvalidOperationException("Сохраните сцену без имени или закройте её, затем повторите команду Networking.");
+            }
+            return false;
         }
 
         private static Material MaterialAsset(string name, Color color)
@@ -263,8 +288,13 @@ namespace MadMachines.Networking.Editor
             if (!File.Exists(ScenePath)) throw new InvalidOperationException("Сначала выполните Create or open sandbox.");
             Scene previousScene = SceneManager.GetActiveScene();
             Scene scene = SceneManager.GetSceneByPath(ScenePath);
-            bool opened = !scene.IsValid() || !scene.isLoaded;
-            if (opened) scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Additive);
+            bool closeAfterValidation = false;
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                bool replaceUntitled = ShouldReplaceUntitledScene();
+                scene = EditorSceneManager.OpenScene(ScenePath, replaceUntitled ? OpenSceneMode.Single : OpenSceneMode.Additive);
+                closeAfterValidation = !replaceUntitled;
+            }
             try
             {
                 NetworkSandboxSession session = null;
@@ -287,7 +317,7 @@ namespace MadMachines.Networking.Editor
             finally
             {
                 if (previousScene.IsValid() && previousScene.isLoaded) SceneManager.SetActiveScene(previousScene);
-                if (opened) EditorSceneManager.CloseScene(scene, true);
+                if (closeAfterValidation) EditorSceneManager.CloseScene(scene, true);
             }
         }
     }
