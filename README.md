@@ -12,6 +12,8 @@
 
 **Сборка Windows** — **Tools → Mad Machines → Build Windows player**. Команда собирает Playground в `Builds/MadMachines/MadMachines.exe`.
 
+**Сетевая разработка** — в том же проекте откройте меню **Tools → Mad Machines → Networking**, соберите и запустите Development Server, затем откройте NetworkSandbox и нажмите Play.
+
 ## Структура проекта
 
 Корень репозитория — Unity-проект Mad Machines. `Assets/MadMachines/` содержит код, сцену и ресурсы игры; `Assets/ASEED/` и `Assets/_ThirdPartyLocal/` — стороннюю модель T100 и подготовленные колёса. `Assets/Settings/`, Input System и пакеты содержат общие настройки и зависимости.
@@ -40,4 +42,5 @@
 
 - [Текущее состояние и проверка](Docs/CURRENT_STATE.md) · [Архитектура](Docs/ARCHITECTURE.md)
 - [Видение игры](Docs/VISION.md) · [Этапы разработки](Docs/ROADMAP.md) · [Ближайшие задачи](Docs/BACKLOG.md)
+- [Сетевой полигон и локальный Dedicated Server](Docs/NETWORKING.md)
 - [Банк идей](Docs/IDEAS.md) · [Ресурсы и лицензии](Docs/ASSETS.md) · [Инструкции агентам](AGENTS.md)

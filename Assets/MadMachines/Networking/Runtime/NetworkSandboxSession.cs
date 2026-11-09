@@ -1,0 +1,411 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Unity.Netcode;
+using Unity.Netcode.Transports.UTP;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+namespace MadMachines.Networking
+{
+    public sealed class NetworkSandboxSession : MonoBehaviour
+    {
+        private const double RetryDelay = 2;
+        private const string ServerFullReason = "На сервере уже два игрока.";
+        public const string ServerReadyMarker = "[MM NET] SERVER_READY";
+
+        [SerializeField] private GameObject vehiclePrefab;
+        [SerializeField] private GameObject projectilePrefab;
+        [SerializeField] private Transform[] spawnPoints;
+        [SerializeField] private bool serverInEditor;
+        private readonly Dictionary<ulong, int> slots = new Dictionary<ulong, int>();
+        private readonly Dictionary<ulong, NetworkObject> players = new Dictionary<ulong, NetworkObject>();
+        private NetworkLaunchOptions options;
+        private double nextStopCheck;
+        private bool quitAfterShutdown;
+        private bool applicationQuitting;
+        private int exitCode;
+        private bool ready;
+        private bool wantsConnection;
+        private bool joined;
+        private int earlyRejections;
+        private double nextAttempt = double.PositiveInfinity;
+        private float previousFixedDeltaTime;
+        private bool changedFixedDeltaTime;
+        private float previousTimeScale;
+        private int previousTargetFrameRate;
+        private bool previousRunInBackground;
+
+        public NetworkManager Manager { get; private set; }
+        public UnityTransport Transport { get; private set; }
+        public string Address => options?.Address ?? NetworkDevelopmentSettings.LocalAddress;
+        public ushort Port => options?.Port ?? NetworkDevelopmentSettings.DefaultPort;
+        public NetworkConnectionMode Mode => options?.Mode ?? NetworkConnectionMode.Offline;
+        public string Status { get; private set; } = "Отключено";
+        public bool IsServerProcess { get; private set; }
+        public bool CanConnect => ready && !IsServerProcess && Manager != null && !Manager.IsListening && !Manager.ShutdownInProgress;
+        public bool CanDisconnect => ready && !IsServerProcess && Manager != null && (wantsConnection || Manager.IsListening);
+
+        public void Configure(GameObject vehicle, GameObject projectile, Transform[] starts)
+        {
+            vehiclePrefab = vehicle;
+            projectilePrefab = projectile;
+            spawnPoints = starts;
+        }
+
+        private void Start()
+        {
+            bool server = false;
+#if UNITY_EDITOR
+            server = serverInEditor;
+#elif UNITY_SERVER
+            server = true;
+#endif
+            string[] arguments = Environment.GetCommandLineArgs();
+            IsServerProcess = server || Array.IndexOf(arguments, "-mm-server") >= 0;
+            try
+            {
+                options = NetworkLaunchOptions.Parse(arguments, server, NetworkDevelopmentSettings.Load());
+                IsServerProcess = options.Server;
+                ValidateConfiguration();
+                if (NetworkManager.Singleton != null || GetComponent<NetworkManager>() != null)
+                    throw new InvalidOperationException("Уже существует NetworkManager. Откройте только NetworkSandbox и перезапустите Play Mode.");
+                previousFixedDeltaTime = Time.fixedDeltaTime;
+                previousTimeScale = Time.timeScale;
+                previousTargetFrameRate = Application.targetFrameRate;
+                previousRunInBackground = Application.runInBackground;
+                changedFixedDeltaTime = true;
+                Application.runInBackground = true;
+                Time.timeScale = 1;
+                Time.fixedDeltaTime = 0.02f;
+
+                Transport = gameObject.AddComponent<UnityTransport>();
+                Transport.ConnectTimeoutMS = 500;
+                Transport.MaxConnectAttempts = 4;
+                Transport.DisconnectTimeoutMS = 6000;
+                Scene sessionScene = gameObject.scene;
+                Manager = gameObject.AddComponent<NetworkManager>();
+                // NGO moves its root to DontDestroyOnLoad in OnEnable. This sandbox is scene-scoped.
+                SceneManager.MoveGameObjectToScene(gameObject, sessionScene);
+                Manager.NetworkConfig = new NetworkConfig
+                {
+                    NetworkTransport = Transport,
+                    NetworkTopology = NetworkTopologyTypes.ClientServer,
+                    ProtocolVersion = NetworkSessionProtocol.NgoHandshakeVersion,
+                    ConnectionData = NetworkSessionProtocol.CreatePayload(vehiclePrefab.GetComponent<NetworkObject>().PrefabIdHash,
+                        projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash),
+                    TickRate = 30,
+                    ClientConnectionBufferTimeout = 8,
+                    EnableSceneManagement = false,
+                    ConnectionApproval = true,
+                    AutoSpawnPlayerPrefabClientSide = false,
+                    EnsureNetworkVariableLengthSafety = true,
+                    ForceSamePrefabs = false // Approval verifies prefab IDs and can return a useful error.
+                };
+                Manager.AddNetworkPrefab(vehiclePrefab);
+                Manager.AddNetworkPrefab(projectilePrefab);
+                Manager.ConnectionApprovalCallback = Approve;
+                Manager.OnClientConnectedCallback += Connected;
+                Manager.OnClientDisconnectCallback += Disconnected;
+                Manager.OnTransportFailure += TransportFailed;
+                Manager.OnServerStopped += ServerStopped;
+                Manager.OnClientStopped += ClientStopped;
+                ready = true;
+
+                if (IsServerProcess)
+                {
+                    Application.targetFrameRate = 60;
+                    // The scene contains no camera/HUD. Server never creates either component.
+                    foreach (Light light in FindObjectsByType<Light>(FindObjectsSortMode.None)) light.enabled = false;
+                    Transport.SetConnectionData(true, options.Address, options.Port, options.BindAddress);
+                    Log($"Запуск выделенного сервера UDP {options.BindAddress}:{Port}; физика 50 Гц, сеть 30 Гц.");
+                    if (!string.IsNullOrEmpty(options.StopFile) && File.Exists(options.StopFile))
+                        throw new InvalidOperationException("Файл остановки уже существует: " + options.StopFile);
+                    if (!Manager.StartServer()) throw new InvalidOperationException("Не удалось запустить сервер; проверьте порт и журнал транспорта.");
+                    Debug.Log($"{ServerReadyMarker} UDP {options.BindAddress}:{Port}; протокол {NetworkSessionProtocol.Version}.");
+                    Log("Сервер готов. Локальный игрок не создаётся.");
+                }
+                else
+                {
+                    gameObject.AddComponent<NetworkClientView>().Configure(this);
+                    if (Mode == NetworkConnectionMode.Offline)
+                    {
+                        Status = "Автоподключение выключено. Для одиночной игры откройте Playground.";
+                    }
+                    else
+                    {
+                        wantsConnection = true;
+                        TryConnect();
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                ready = false;
+                if (Manager != null && Manager.IsListening) Manager.Shutdown();
+                Status = "Ошибка запуска: " + error.Message;
+                Debug.LogError("[MM NET] " + error);
+                if (IsServerProcess) StopServer(1);
+                else if (GetComponent<NetworkClientView>() == null && (NetworkManager.Singleton == null || Manager == NetworkManager.Singleton))
+                    gameObject.AddComponent<NetworkClientView>().Configure(this);
+            }
+        }
+
+        public void ValidateConfiguration()
+        {
+            if (transform.parent != null)
+                throw new InvalidOperationException("Network session должна быть корневым объектом сцены.");
+            if (spawnPoints == null || spawnPoints.Length != 2 || spawnPoints[0] == null || spawnPoints[1] == null || spawnPoints[0] == spawnPoints[1])
+                throw new InvalidOperationException("NetworkSandbox: нужны две разные точки появления.");
+            foreach (Transform start in spawnPoints)
+                if (start.gameObject.scene != gameObject.scene)
+                    throw new InvalidOperationException("NetworkSandbox: точки появления должны находиться в сцене сессии.");
+            NetworkSandboxValidation.ValidateVehicle(vehiclePrefab, projectilePrefab);
+            NetworkSandboxValidation.ValidateProjectile(projectilePrefab);
+            if (vehiclePrefab.GetComponent<NetworkObject>().PrefabIdHash == projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash)
+                throw new InvalidOperationException("У машины и снаряда совпадают сетевые идентификаторы prefab.");
+        }
+
+        public void Connect(string address, string port)
+        {
+            if (!CanConnect) return;
+            if (!NetworkLaunchOptions.IsClientAddress(address) || !ushort.TryParse(port, out ushort parsed) || parsed == 0)
+            {
+                StopConnecting("Укажите IPv4 и порт от 1 до 65535.");
+                return;
+            }
+            options.Address = System.Net.IPAddress.Parse(address).ToString();
+            options.Port = parsed;
+            options.Mode = Address == NetworkDevelopmentSettings.LocalAddress ? NetworkConnectionMode.DevelopmentOnline : NetworkConnectionMode.RemoteOnline;
+            earlyRejections = 0;
+            wantsConnection = true;
+            TryConnect();
+        }
+
+        private void TryConnect()
+        {
+            nextAttempt = double.PositiveInfinity;
+            joined = false;
+            Status = "Подключение…";
+            Log($"Подключение к {Address}:{Port}.");
+            try
+            {
+                Transport.SetConnectionData(true, Address, Port);
+                if (!Manager.StartClient()) ScheduleRetry("Не удалось начать подключение. См. журнал.");
+            }
+            catch (Exception error)
+            {
+                Debug.LogError("[MM NET] " + error);
+                if (Manager.IsListening) Manager.Shutdown(true);
+                ScheduleRetry("Ошибка подключения. См. журнал.");
+            }
+        }
+
+        public void Disconnect()
+        {
+            if (!CanDisconnect) return;
+            StopConnecting("Отключено пользователем.");
+            if (Manager.IsListening) Manager.Shutdown();
+        }
+
+        private void ScheduleRetry(string reason)
+        {
+            if (!wantsConnection) return;
+            Status = "Ожидание сервера. " + reason;
+            nextAttempt = Time.realtimeSinceStartupAsDouble + RetryDelay;
+        }
+
+        private void StopConnecting(string reason)
+        {
+            wantsConnection = false;
+            nextAttempt = double.PositiveInfinity;
+            Status = reason;
+        }
+
+        private void Approve(NetworkManager.ConnectionApprovalRequest request, NetworkManager.ConnectionApprovalResponse response)
+        {
+            response.CreatePlayerObject = false;
+            response.Pending = false;
+            string incompatibility = NetworkSessionProtocol.CheckCompatibility(request.Payload, Manager.NetworkConfig.ConnectionData);
+            if (incompatibility != null)
+            {
+                response.Approved = false;
+                response.Reason = incompatibility;
+                Log($"Отклонено подключение {request.ClientNetworkId}: {incompatibility}");
+                return;
+            }
+            if (!ready || Manager.ShutdownInProgress || slots.Count >= 2 || slots.ContainsKey(request.ClientNetworkId))
+            {
+                response.Approved = false;
+                response.Reason = ServerFullReason;
+                Log($"Отклонено подключение {request.ClientNetworkId}: {response.Reason}");
+                return;
+            }
+            int slot = slots.ContainsValue(0) ? 1 : 0;
+            slots.Add(request.ClientNetworkId, slot);
+            response.Approved = true;
+            Log($"Одобрено подключение {request.ClientNetworkId}; место {slot + 1}.");
+        }
+
+        private void Connected(ulong clientId)
+        {
+            if (!Manager.IsServer)
+            {
+                if (clientId != Manager.LocalClientId) return;
+                joined = true;
+                earlyRejections = 0;
+                Status = "Подключено";
+                Log($"Подключено; локальный клиент {Manager.LocalClientId}.");
+                return;
+            }
+            if (players.ContainsKey(clientId) || !slots.TryGetValue(clientId, out int slot)) return;
+            GameObject instance = null;
+            try
+            {
+                Transform start = spawnPoints[slot];
+                instance = Instantiate(vehiclePrefab, start.position, start.rotation);
+                NetworkObject player = instance.GetComponent<NetworkObject>();
+                instance.GetComponent<NetworkVehicle>().InitializeServer(slot, clientId);
+                player.Spawn(destroyWithScene: true);
+                if (!player.IsSpawned) throw new InvalidOperationException("NGO не создал машину.");
+                players.Add(clientId, player);
+                Log($"Игрок {clientId} подключён; машина {player.NetworkObjectId}, место {slot + 1}; машин {players.Count}/2.");
+            }
+            catch (Exception error)
+            {
+                if (instance != null)
+                {
+                    NetworkObject failed = instance.GetComponent<NetworkObject>();
+                    if (failed != null && failed.IsSpawned) failed.Despawn(true);
+                    else Destroy(instance);
+                }
+                players.Remove(clientId);
+                slots.Remove(clientId);
+                Debug.LogError($"[MM NET] Не удалось создать машину игрока {clientId}: {error}");
+                Manager.DisconnectClient(clientId, "Не удалось создать машину. См. журнал сервера.");
+            }
+        }
+
+        private void Disconnected(ulong clientId)
+        {
+            if (IsServerProcess)
+            {
+                players.TryGetValue(clientId, out NetworkObject player);
+                players.Remove(clientId);
+                slots.Remove(clientId);
+                if (player != null && player.IsSpawned) player.Despawn(true);
+                Log($"Клиент {clientId} отключён; машин {players.Count}/2.");
+            }
+            else if (wantsConnection && !applicationQuitting)
+            {
+                string reason = Manager.DisconnectReason ?? string.Empty;
+                Log($"Отключение клиента: {reason}");
+                if (reason.StartsWith(NetworkSessionProtocol.RejectionPrefix, StringComparison.Ordinal))
+                {
+                    StopConnecting(reason.Substring(NetworkSessionProtocol.RejectionPrefix.Length));
+                    return;
+                }
+
+                // Older builds can be rejected by the NGO config hash before approval can send a reason.
+                NetworkTransport.DisconnectEvents disconnect = Manager.DisconnectEvent;
+                if (!joined && (disconnect == NetworkTransport.DisconnectEvents.ClosedByRemote ||
+                    disconnect == NetworkTransport.DisconnectEvents.ProtocolError) &&
+                    reason != ServerFullReason)
+                {
+                    if (++earlyRejections >= 2)
+                    {
+                        StopConnecting("Сервер отклоняет подключение. Проверьте версию сборок и журнал сервера, затем нажмите «Подключиться».");
+                        return;
+                    }
+                }
+                else earlyRejections = 0;
+                string detail = joined ? "Связь потеряна." : "Не удалось подключиться. См. журнал.";
+                ScheduleRetry(reason == ServerFullReason ? reason : detail);
+            }
+        }
+
+        private void TransportFailed()
+        {
+            Debug.LogError("[MM NET] Ошибка транспорта. См. журнал.");
+            if (IsServerProcess) StopServer(1);
+            else ScheduleRetry("Ошибка транспорта. См. журнал.");
+        }
+
+        private void ServerStopped(bool wasHost)
+        {
+            players.Clear();
+            slots.Clear();
+            ready = false;
+            Log("Сервер остановлен; сетевые объекты освобождены.");
+        }
+
+        private void ClientStopped(bool wasHost)
+        {
+            if (!applicationQuitting && double.IsPositiveInfinity(nextAttempt)) ScheduleRetry("Связь закрыта.");
+            Log("Клиентский транспорт остановлен.");
+        }
+
+        public void StopServer(int code = 0)
+        {
+            if (quitAfterShutdown) return;
+            Log("Завершение выделенного сервера…");
+            exitCode = code;
+            quitAfterShutdown = true;
+            if (Manager != null) Manager.Shutdown();
+        }
+
+        private void Update()
+        {
+            if (quitAfterShutdown && (Manager == null || (!Manager.IsListening && !Manager.ShutdownInProgress)))
+            {
+                quitAfterShutdown = false;
+                Log("Завершение процесса, код " + exitCode + ".");
+#if UNITY_EDITOR
+                UnityEditor.EditorApplication.isPlaying = false;
+#else
+                Application.Quit(exitCode);
+#endif
+                return;
+            }
+            if (!IsServerProcess)
+            {
+                if (wantsConnection && CanConnect && Time.realtimeSinceStartupAsDouble >= nextAttempt) TryConnect();
+                return;
+            }
+            if (options == null || string.IsNullOrEmpty(options.StopFile) || Time.realtimeSinceStartupAsDouble < nextStopCheck) return;
+            nextStopCheck = Time.realtimeSinceStartupAsDouble + 1;
+            if (File.Exists(options.StopFile)) StopServer();
+        }
+
+        private void OnApplicationQuit()
+        {
+            applicationQuitting = true;
+            wantsConnection = false;
+            Log("Приложение закрывается; завершение сетевой сессии.");
+            if (Manager != null && Manager.IsListening) Manager.Shutdown();
+        }
+
+        private void OnDestroy()
+        {
+            ready = false;
+            wantsConnection = false;
+            if (changedFixedDeltaTime)
+            {
+                Time.fixedDeltaTime = previousFixedDeltaTime;
+                Time.timeScale = previousTimeScale;
+                Application.targetFrameRate = previousTargetFrameRate;
+                Application.runInBackground = previousRunInBackground;
+            }
+            if (Manager == null) return;
+            if (!applicationQuitting && Manager.IsListening) Manager.Shutdown();
+            Manager.OnClientConnectedCallback -= Connected;
+            Manager.OnClientDisconnectCallback -= Disconnected;
+            Manager.OnTransportFailure -= TransportFailed;
+            Manager.OnServerStopped -= ServerStopped;
+            Manager.OnClientStopped -= ClientStopped;
+            Manager.ConnectionApprovalCallback = null;
+        }
+
+        private static void Log(string message) => Debug.Log("[MM NET] " + message);
+    }
+}
