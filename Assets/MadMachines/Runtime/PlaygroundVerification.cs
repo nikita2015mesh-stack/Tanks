@@ -31,7 +31,7 @@ namespace MadMachines
             rules.PersistRecords = false;
             rules.Begin(ChallengeMode.Free);
             yield return new WaitForSeconds(1.5f);
-            Check(car.GroundedWheels == 4 && car.transform.position.y > 0.4f, "Suspension supports stationary chassis");
+            Check(car.GroundedWheels == car.WheelCount && car.transform.position.y > 0.4f, "Suspension supports stationary chassis");
             Vector3 initial = car.transform.position;
             car.Submit(new VehicleCommand { Throttle = 1 });
             yield return new WaitForSeconds(1.5f);

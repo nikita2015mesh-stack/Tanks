@@ -20,6 +20,6 @@
 /.idea/
 /.utmp/
 
-# Third-party licensed assets - local only
-/Assets/_ThirdPartyLocal/
-/Assets/_ThirdPartyLocal.meta
+# Local agent state and editor backups
+/.serena/
+*.blend[0-9]*

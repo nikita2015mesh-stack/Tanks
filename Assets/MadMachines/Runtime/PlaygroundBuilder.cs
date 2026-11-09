@@ -139,16 +139,28 @@ namespace MadMachines
             SeparateBodyVisual(hull, bodyRoot);
             SeparateBodyVisual(nose, bodyRoot);
             SeparateBodyVisual(cab, bodyRoot);
-            Transform[] wheels = new Transform[4];
-            for (int i = 0; i < 4; i++)
+            VehiclePhysics physics = car.AddComponent<VehiclePhysics>();
+            physics.Configure();
+            Transform[] wheels = new Transform[physics.WheelCount];
+            WheelSuspensionVisual[] suspensions = new WheelSuspensionVisual[physics.WheelCount];
+            for (int i = 0; i < physics.WheelCount; i++)
             {
-                GameObject wheel = Shape(PrimitiveType.Cylinder, "Suspended wheel " + i, car.transform.position, new Vector3(0.86f, 0.25f, 0.86f), new Color(0.055f, 0.07f, 0.085f), car.transform);
+                VehicleWheel definition = physics.GetWheelDefinition(i);
+                definition.EnableWishbone();
+                GameObject wheel = Shape(PrimitiveType.Cylinder, "Suspended wheel " + i, car.transform.position, new Vector3(definition.Radius * 2f, 0.25f, definition.Radius * 2f), new Color(0.055f, 0.07f, 0.085f), car.transform);
                 wheel.layer = 2;
                 RemoveCollider(wheel);
                 Transform anchor = new GameObject("Wheel anchor " + i).transform;
                 anchor.SetParent(visualRoot, false);
-                wheel.transform.SetParent(anchor, false);
+                suspensions[i] = VehicleSuspensionBuilder.CreateRig(visualRoot, anchor, i, PlaygroundEffects.Material(Road));
+                wheel.transform.SetParent(suspensions[i].WheelSpin, false);
                 wheel.transform.localPosition = Vector3.zero;
+                wheel.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                // A contrasting spoke makes rolling direction visible on the primitive demo wheel.
+                GameObject spoke = Box("Wheel spoke " + i, Vector3.zero, new Vector3(0.025f, definition.Radius * 1.5f, 0.07f), Orange, suspensions[i].WheelSpin);
+                spoke.transform.localPosition = Vector3.right * (definition.Mount.x < 0f ? -0.26f : 0.26f);
+                spoke.layer = 2;
+                RemoveCollider(spoke);
                 wheels[i] = anchor;
             }
             GameObject turret = Shape(PrimitiveType.Cylinder, "Weapon mount", car.transform.position + Vector3.up * 0.9f, new Vector3(1, 0.25f, 1), Orange, car.transform);
@@ -167,9 +179,10 @@ namespace MadMachines
             GameObject muzzle = new GameObject("Muzzle");
             muzzle.transform.SetParent(barrel.transform, false);
             muzzle.transform.localPosition = new Vector3(0, 0, 2.2f);
-            VehiclePhysics physics = car.AddComponent<VehiclePhysics>();
-            physics.Configure();
-            visualRoot.gameObject.AddComponent<VehicleVisuals>().Configure(physics, bodyRoot, wheels);
+            VehicleVisuals visuals = visualRoot.gameObject.AddComponent<VehicleVisuals>();
+            visuals.Configure(physics, bodyRoot, wheels);
+            visuals.SetSuspensions(suspensions);
+            visuals.ApplyPose();
             car.AddComponent<WeaponSystem>().Configure(physics, mount.transform, barrel.transform, muzzle.transform, weapons);
             return physics;
         }

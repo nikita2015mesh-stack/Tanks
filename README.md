@@ -4,6 +4,8 @@
 
 ## Запуск
 
+Используемые модели, материалы, текстуры, подготовленные колёса и их `.meta` хранятся в Git. После клонирования проекта отдельно импортировать T100 через My Assets или запускать Blender не требуется. Unity восстановит пакеты из `Packages/manifest.json` и `Packages/packages-lock.json`.
+
 1. Открой корень репозитория в Unity 6000.6.8f1 и дождись импорта.
 2. Открой [Playground.unity](Assets/MadMachines/Scenes/Playground.unity), нажми Play и выбери режим в гараже.
 3. Если файла сцены нет, используй **Tools → Mad Machines → Create or open playground**.

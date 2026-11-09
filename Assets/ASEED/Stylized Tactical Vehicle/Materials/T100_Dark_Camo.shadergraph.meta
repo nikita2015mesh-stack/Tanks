@@ -1,0 +1,25 @@
+fileFormatVersion: 2
+guid: f4cf222cd61b04c318cadd6ee9cedbce
+ScriptedImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 2
+  userData:
+  assetBundleName:
+  assetBundleVariant:
+  script: {fileID: 11500000, guid: 625f186215c104763be7675aa2d941aa, type: 3}
+  useAsTemplate: 0
+  exposeTemplateAsShader: 0
+  template:
+    name:
+    category:
+    description:
+    icon: {instanceID: 0}
+    thumbnail: {instanceID: 0}
+AssetOrigin:
+  serializedVersion: 1
+  productId: 403144
+  packageName: STYLIZED TACTICAL VEHICLE - FREE STARTER PACK
+  packageVersion: 1.0
+  assetPath: Assets/ASEED/Stylized Tactical Vehicle/Materials/T100_Dark_Camo.shadergraph
+  uploadId: 985324

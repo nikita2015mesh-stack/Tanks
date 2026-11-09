@@ -1436,7 +1436,7 @@ Transform:
   m_GameObject: {fileID: 197971247}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: -0.956966, y: -0.94772243, z: -1.7150838}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -6013,7 +6013,7 @@ Transform:
   m_GameObject: {fileID: 887622193}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: -0.956966, y: -0.94772243, z: 1.7126635}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -9970,7 +9970,7 @@ Transform:
   m_GameObject: {fileID: 1356355982}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0.956966, y: -0.94772243, z: -1.7150838}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -11119,7 +11119,7 @@ Transform:
   m_GameObject: {fileID: 1689945613}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0.956966, y: -0.94772243, z: 1.7126635}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -14643,12 +14643,69 @@ MonoBehaviour:
   damper: 4800
   grip: 7
   suspensionLength: 0.65
-  wheelRadius: 0.43
+  wheelRadius: 0.5461545
   wheels:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
+  wheelDefinitions:
+  - id: wheel_0
+    mount: {x: -0.956966, y: -0.35903493, z: 1.7126635}
+    radius: 0.5461545
+    travel: 0.65
+    supportWeight: 1
+    springMultiplier: 1
+    damperMultiplier: 1
+    gripMultiplier: 1
+    steeringAngle: 28
+    driveWeight: 1
+    brakeWeight: 1
+    handbrakeGripMultiplier: 1
+    geometry: 0
+    armLength: 0.8
+  - id: wheel_1
+    mount: {x: 0.956966, y: -0.35903493, z: 1.7126635}
+    radius: 0.5461545
+    travel: 0.65
+    supportWeight: 1
+    springMultiplier: 1
+    damperMultiplier: 1
+    gripMultiplier: 1
+    steeringAngle: 28
+    driveWeight: 1
+    brakeWeight: 1
+    handbrakeGripMultiplier: 1
+    geometry: 0
+    armLength: 0.8
+  - id: wheel_2
+    mount: {x: -0.956966, y: -0.35903493, z: -1.7150838}
+    radius: 0.5461545
+    travel: 0.65
+    supportWeight: 1
+    springMultiplier: 1
+    damperMultiplier: 1
+    gripMultiplier: 1
+    steeringAngle: 0
+    driveWeight: 1
+    brakeWeight: 1
+    handbrakeGripMultiplier: 0.18
+    geometry: 0
+    armLength: 0.8
+  - id: wheel_3
+    mount: {x: 0.956966, y: -0.35903493, z: -1.7150838}
+    radius: 0.5461545
+    travel: 0.65
+    supportWeight: 1
+    springMultiplier: 1
+    damperMultiplier: 1
+    gripMultiplier: 1
+    steeringAngle: 0
+    driveWeight: 1
+    brakeWeight: 1
+    handbrakeGripMultiplier: 0.18
+    geometry: 0
+    armLength: 0.8
 --- !u!1 &2024817982
 GameObject:
   m_ObjectHideFlags: 0
@@ -16159,7 +16216,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 6024570664420552806}
-  m_Mesh: {fileID: 6493865308804069609, guid: 4c909604a95df4b07b919650fecde104, type: 3}
+  m_Mesh: {fileID: -2356839498367080463, guid: 96f60d5829d9bbb059e77c10786c4853, type: 3}
 --- !u!1 &3837113376844959011
 GameObject:
   m_ObjectHideFlags: 0
@@ -16185,7 +16242,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3837113376844959011}
-  m_Mesh: {fileID: -6862239782504907741, guid: 4c909604a95df4b07b919650fecde104, type: 3}
+  m_Mesh: {fileID: 4757561864315882115, guid: 936925b9e1739fb89b4d7b27f8415504, type: 3}
 --- !u!1 &5295345174860355981
 GameObject:
   m_ObjectHideFlags: 0
@@ -16440,7 +16497,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 5295345174860355981}
-  m_Mesh: {fileID: 3297890726542690664, guid: 4c909604a95df4b07b919650fecde104, type: 3}
+  m_Mesh: {fileID: -8086809397760034199, guid: 2e1a9bf4cce2abd0e972261c1d2ab792, type: 3}
 --- !u!33 &7253850013435217079
 MeshFilter:
   m_ObjectHideFlags: 0
@@ -16448,7 +16505,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 7385882208938365520}
-  m_Mesh: {fileID: 407957011145548195, guid: 4c909604a95df4b07b919650fecde104, type: 3}
+  m_Mesh: {fileID: -7426482797540670978, guid: da0af4ba6473f5774a4b5d7a567ec435, type: 3}
 --- !u!1 &7385882208938365520
 GameObject:
   m_ObjectHideFlags: 0
