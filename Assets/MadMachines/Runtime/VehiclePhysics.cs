@@ -201,13 +201,18 @@ namespace MadMachines
             {
                 Vector3 localOrigin = wheel.GetPosition(extension);
                 localOrigin.y = wheel.Mount.y;
-                Vector3 origin = transform.TransformPoint(localOrigin);
-                if (!Physics.Raycast(origin, -transform.up, out hit, wheel.Travel + wheel.Radius, 1, QueryTriggerInteraction.Ignore))
+                // Start above the fully compressed hub so the sphere also detects a landing
+                // whose surface is already closer than one wheel radius to the mount.
+                float castOffset = wheel.Radius;
+                Vector3 origin = transform.TransformPoint(localOrigin) + transform.up * castOffset;
+                if (!Physics.SphereCast(origin, wheel.Radius, -transform.up, out hit,
+                    wheel.Travel + castOffset, 1, QueryTriggerInteraction.Ignore))
                 {
                     extension = wheel.Travel;
                     return false;
                 }
-                float nextExtension = Mathf.Clamp(hit.distance - wheel.Radius, 0f, wheel.Travel);
+                // SphereCast measures hub travel; its radius already accounts for the slope normal.
+                float nextExtension = Mathf.Clamp(hit.distance - castOffset, 0f, wheel.Travel);
                 if (Mathf.Abs(nextExtension - extension) < 0.001f)
                 {
                     extension = nextExtension;
