@@ -9,8 +9,9 @@ namespace MadMachines
         private static readonly Color Road = new Color(0.16f, 0.21f, 0.24f);
         private static readonly Color Orange = new Color(1f, 0.4f, 0.08f);
         private static readonly Color Teal = new Color(0.08f, 0.65f, 0.57f);
+        private static readonly Vector3 SpawnPosition = new Vector3(0, 1.5f, -42);
 
-        public static GameObject Build(WeaponDefinition[] weapons)
+        public static GameObject Build(WeaponDefinition[] weapons, VehicleDefinition vehicle = null)
         {
             GameObject world = new GameObject("MAD MACHINES — Playground");
             Transform root = world.transform;
@@ -51,7 +52,7 @@ namespace MadMachines
             for (int i = 0; i < 12; i++)
                 Box("Track marker", new Vector3(-7.3f, 0.18f, -44 + i * 8), new Vector3(0.7f, 0.35f, 3), i % 2 == 0 ? Orange : Color.white, root);
 
-            VehiclePhysics car = BuildVehicle(root, weapons);
+            VehiclePhysics car = vehicle == null ? BuildVehicle(root, weapons) : null;
             Vector3[] gatePositions = { new Vector3(0, 0, -20), new Vector3(0, 0, 24), new Vector3(0, 0, 46), new Vector3(36, 0, 46), new Vector3(36, 0, 8), new Vector3(36, 0, -36), new Vector3(17, 0, -48), new Vector3(0, 0, -38) };
             float[] headings = { 0, 0, 45, 180, 180, 210, 270, 0 };
             Checkpoint[] gates = new Checkpoint[gatePositions.Length];
@@ -92,17 +93,29 @@ namespace MadMachines
             GameObject cameraObject = new GameObject("Playground Camera", typeof(Camera), typeof(AudioListener));
             cameraObject.transform.SetParent(root);
             cameraObject.tag = "MainCamera";
-            cameraObject.transform.position = car.transform.position + new Vector3(0, 5, -9);
+            cameraObject.transform.position = SpawnPosition + new Vector3(0, 5, -9);
             Camera camera = cameraObject.GetComponent<Camera>();
             camera.fieldOfView = 65;
             camera.farClipPlane = 350;
             camera.backgroundColor = new Color(0.22f, 0.38f, 0.5f);
             camera.clearFlags = CameraClearFlags.SolidColor;
             VehicleCamera view = cameraObject.AddComponent<VehicleCamera>();
-            view.Configure(car.transform);
             LocalPlayerInput input = world.AddComponent<LocalPlayerInput>();
-            input.Configure(car, car.GetComponent<WeaponSystem>(), view, rules);
-            world.AddComponent<PlaygroundHud>().Configure(input, car, car.GetComponent<WeaponSystem>(), rules);
+            PlaygroundHud hud = world.AddComponent<PlaygroundHud>();
+            if (car != null)
+            {
+                WeaponSystem gun = car.GetComponent<WeaponSystem>();
+                view.Configure(car.transform);
+                input.Configure(car, gun, view, rules);
+                hud.Configure(input, car, gun, rules);
+            }
+            else
+            {
+                Transform start = new GameObject("Vehicle start").transform;
+                start.SetParent(root, false);
+                start.position = SpawnPosition;
+                world.AddComponent<LocalVehicleSession>().Configure(vehicle, start, view);
+            }
             GameObject sun = new GameObject("Afternoon sun", typeof(Light));
             sun.transform.SetParent(root);
             sun.transform.rotation = Quaternion.Euler(48, -32, 0);
@@ -124,7 +137,7 @@ namespace MadMachines
         {
             GameObject car = new GameObject("RUST ROCKET — player vehicle");
             car.transform.SetParent(root);
-            car.transform.position = new Vector3(0, 1.5f, -42);
+            car.transform.position = SpawnPosition;
             car.layer = 2;
             Transform visualRoot = new GameObject("Vehicle visuals").transform;
             visualRoot.SetParent(car.transform, false);

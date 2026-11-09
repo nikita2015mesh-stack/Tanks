@@ -9,13 +9,25 @@ namespace MadMachines
         public bool Handbrake;
     }
 
+    public enum VehicleDrive
+    {
+        Configured, All, Front, Rear
+    }
+
     [RequireComponent(typeof(Rigidbody))]
     public sealed class VehiclePhysics : MonoBehaviour
     {
+        private const float MinimumGroundAlignment = 0.2f;
+        private const float AxleTolerance = 0.1f;
+        private static readonly Vector3 DefaultCenterOfMass = new Vector3(0f, -0.35f, 0f);
+
         [SerializeField] private float engineForce = 10500f;
         [SerializeField] private float spring = 34000f;
         [SerializeField] private float damper = 4800f;
         [SerializeField] private float grip = 7f;
+        [SerializeField, Min(0f)] private float tireFriction;
+        [SerializeField, Min(1f)] private float gravityMultiplier = 1f;
+        [SerializeField] private VehicleDrive driveMode;
         // Retained as defaults for scenes created before configurable wheels.
         [SerializeField] private float suspensionLength = 0.65f;
         [SerializeField] private float wheelRadius = 0.43f;
@@ -27,6 +39,7 @@ namespace MadMachines
         private VehicleCommand command;
 
         public bool Authority { get; set; } = true;
+        public VehicleDrive DriveMode { get => driveMode; set => driveMode = value; }
         public Rigidbody Body => body != null ? body : body = GetComponent<Rigidbody>();
         public float Speed => Body.linearVelocity.magnitude * 3.6f;
         public int GroundedWheels { get; private set; }
@@ -34,7 +47,10 @@ namespace MadMachines
 
         private void Awake()
         {
-            Body.centerOfMass = new Vector3(0f, -0.35f, 0f);
+            if (Body.automaticCenterOfMass)
+            {
+                Body.centerOfMass = DefaultCenterOfMass;
+            }
             InitializeWheels();
             ResetWheelStates();
             if (GetComponentInChildren<VehicleVisuals>(true) == null && wheels != null && wheels.Length > 0)
@@ -58,7 +74,7 @@ namespace MadMachines
                 visuals.Configure(this, null, visualWheels);
             }
             Body.mass = 850f;
-            Body.centerOfMass = new Vector3(0f, -0.35f, 0f);
+            Body.centerOfMass = DefaultCenterOfMass;
             Body.interpolation = RigidbodyInterpolation.Interpolate;
             Body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             Body.angularDamping = 0.9f;
@@ -136,11 +152,22 @@ namespace MadMachines
             float supportTotal = 0f;
             float driveTotal = 0f;
             float brakeTotal = 0f;
+            float front = float.NegativeInfinity;
+            float rear = float.PositiveInfinity;
             foreach (VehicleWheel wheel in wheelDefinitions)
             {
                 supportTotal += wheel.SupportWeight;
-                driveTotal += wheel.DriveWeight;
                 brakeTotal += wheel.BrakeWeight;
+                front = Mathf.Max(front, wheel.Mount.z);
+                rear = Mathf.Min(rear, wheel.Mount.z);
+            }
+            foreach (VehicleWheel wheel in wheelDefinitions)
+            {
+                driveTotal += DriveWeight(wheel, front, rear);
+            }
+            if (Body.useGravity && !Body.isKinematic && gravityMultiplier > 1f)
+            {
+                Body.AddForce(Physics.gravity * (gravityMultiplier - 1f), ForceMode.Acceleration);
             }
 
             GroundedWheels = 0;
@@ -169,20 +196,30 @@ namespace MadMachines
                     Quaternion steering = Quaternion.AngleAxis(state.Steering, transform.up);
                     Vector3 forward = Vector3.ProjectOnPlane(steering * transform.forward, hit.normal).normalized;
                     Vector3 side = Vector3.Cross(hit.normal, forward);
-                    float surfaceGrip = hit.collider.GetComponent<SurfaceGrip>()?.Multiplier ?? 1f;
-                    float lateralGrip = grip * wheel.GripMultiplier * surfaceGrip
+                    float surfaceGrip = hit.collider.GetComponent<SurfaceGrip>()?.At(hit.point) ?? 1f;
+                    float gripScale = wheel.GripMultiplier * surfaceGrip
                         * (command.Handbrake ? wheel.HandbrakeGripMultiplier : 1f);
-                    Body.AddForceAtPosition(-side * Vector3.Dot(velocity, side) * lateralGrip * Body.mass * share, hit.point);
+                    float lateralForce = -Vector3.Dot(velocity, side) * grip * gripScale * Body.mass * share;
                     float forwardSpeed = Vector3.Dot(velocity, forward);
-                    float driveShare = driveTotal > 0f ? wheel.DriveWeight / driveTotal : 0f;
+                    float driveShare = driveTotal > 0f ? DriveWeight(wheel, front, rear) / driveTotal : 0f;
                     float drive = command.Throttle * engineForce * driveShare
                         * Mathf.Clamp01(1f - Mathf.Abs(forwardSpeed) / 32f);
                     if (command.Handbrake && brakeTotal > 0f)
                     {
                         drive -= forwardSpeed * Body.mass * 1.5f * wheel.BrakeWeight / brakeTotal * 4f;
                     }
-                    Body.AddForceAtPosition(forward * drive, hit.point);
-                    Body.AddForceAtPosition(-forward * forwardSpeed * 45f * share * 4f, hit.point);
+                    float longitudinalForce = drive - forwardSpeed * 45f * share * 4f;
+                    if (tireFriction > 0f)
+                    {
+                        float normalLoad = force * Vector3.Dot(transform.up, hit.normal);
+                        float traction = normalLoad * tireFriction;
+                        longitudinalForce = Mathf.Clamp(longitudinalForce, -traction, traction);
+                        // A tire using its grip for drive or braking has less left for cornering.
+                        float lateralLimit = Mathf.Sqrt(Mathf.Max(0f, traction * traction - longitudinalForce * longitudinalForce))
+                            * Mathf.Clamp01(gripScale);
+                        lateralForce = Mathf.Clamp(lateralForce, -lateralLimit, lateralLimit);
+                    }
+                    Body.AddForceAtPosition(forward * longitudinalForce + side * lateralForce, hit.point);
                     // Rolling presentation only; tire slip and wheel inertia are not simulated yet.
                     state.AngularSpeed = forwardSpeed / wheel.Radius * Mathf.Rad2Deg;
                 }
@@ -190,6 +227,17 @@ namespace MadMachines
                 wheelStates[i] = state;
             }
             Body.AddForce(-Body.linearVelocity * Body.linearVelocity.magnitude * 0.7f);
+        }
+
+        private float DriveWeight(VehicleWheel wheel, float front, float rear)
+        {
+            return driveMode switch
+            {
+                VehicleDrive.Front => wheel.Mount.z >= front - AxleTolerance ? 1f : 0f,
+                VehicleDrive.Rear => wheel.Mount.z <= rear + AxleTolerance ? 1f : 0f,
+                VehicleDrive.All => 1f,
+                _ => wheel.DriveWeight
+            };
         }
 
         private bool FindContact(VehicleWheel wheel, float previousExtension, out RaycastHit hit, out float extension)
@@ -206,7 +254,9 @@ namespace MadMachines
                 float castOffset = wheel.Radius;
                 Vector3 origin = transform.TransformPoint(localOrigin) + transform.up * castOffset;
                 if (!Physics.SphereCast(origin, wheel.Radius, -transform.up, out hit,
-                    wheel.Travel + castOffset, 1, QueryTriggerInteraction.Ignore))
+                    wheel.Travel + castOffset, 1, QueryTriggerInteraction.Ignore) ||
+                    Vector3.Dot(hit.normal, transform.up) < MinimumGroundAlignment ||
+                    Vector3.Dot(hit.normal, Vector3.up) < MinimumGroundAlignment)
                 {
                     extension = wheel.Travel;
                     return false;

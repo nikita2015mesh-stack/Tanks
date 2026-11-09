@@ -75,11 +75,12 @@ namespace MadMachines.Networking.Editor
             Require(!buffer.Sample(4.02, out command), "Disable очищает управление");
             Require(buffer.Receive(Valid(4), 4.03, 1, 1, true) == CommandRejection.Sequence, "Disable не разрешает повтор старого номера");
 
-            NetworkShotCooldown cooldown = new NetworkShotCooldown();
-            Require(cooldown.TryBegin(1), "Первый выстрел");
-            for (int i = 0; i < 100; i++) Require(!cooldown.TryBegin(1.01), "Спам не сокращает перезарядку");
-            Require(!cooldown.TryBegin(2.14) && cooldown.TryBegin(2.16), "Серверная перезарядка");
-            Require(cooldown.TryBegin(20) && !cooldown.TryBegin(20), "Нет залпа накопленных выстрелов после задержки");
+            const float cannonInterval = 1.15f;
+            WeaponCooldown cooldown = default;
+            Require(cooldown.TryBegin(1, cannonInterval), "Первый выстрел");
+            for (int i = 0; i < 100; i++) Require(!cooldown.TryBegin(1.01, cannonInterval), "Спам не сокращает перезарядку");
+            Require(!cooldown.TryBegin(2.14, cannonInterval) && cooldown.TryBegin(2.16, cannonInterval), "Серверная перезарядка");
+            Require(cooldown.TryBegin(20, cannonInterval) && !cooldown.TryBegin(20, cannonInterval), "Нет залпа накопленных выстрелов после задержки");
 
             NetworkPoseBuffer poses = new NetworkPoseBuffer();
             Require(!poses.Sample(0, out _), "Пустой буфер позы");

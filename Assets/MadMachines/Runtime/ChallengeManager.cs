@@ -21,6 +21,8 @@ namespace MadMachines
         [SerializeField] private Target[] targets;
         [SerializeField] private Vector3 spawn = new Vector3(0f, 1.5f, -42f);
         [SerializeField] private float shootingDuration = 60f;
+        [SerializeField] private string trackId;
+        private Quaternion spawnRotation = Quaternion.identity;
         private float startTime;
         private int destroyed;
         private int shots;
@@ -29,6 +31,7 @@ namespace MadMachines
         private bool wasKinematic;
         public bool Authority { get; set; } = true;
         public bool PersistRecords { get; set; } = true;
+        public string TrackId => trackId;
         public ChallengeMode Mode { get; private set; }
         public SessionPhase Phase { get; private set; }
         public int NextCheckpoint { get; private set; }
@@ -50,6 +53,12 @@ namespace MadMachines
             participant = vehicle;
             checkpoints = gates;
             targets = rangeTargets;
+        }
+
+        public void BindParticipant(VehiclePhysics vehicle, Transform startPoint)
+        {
+            participant = vehicle;
+            startPoint.GetPositionAndRotation(out spawn, out spawnRotation);
         }
 
         private void Start()
@@ -76,7 +85,7 @@ namespace MadMachines
             ResultDetail = "";
             foreach (Projectile projectile in FindObjectsByType<Projectile>()) Destroy(projectile.gameObject);
             foreach (Target target in targets) target.ResetTarget();
-            participant.Recover(spawn, Quaternion.identity);
+            participant.Recover(spawn, spawnRotation);
             Phase = mode == ChallengeMode.Free ? SessionPhase.Free : SessionPhase.Countdown;
             startTime = Time.time + 3f;
             if (Phase == SessionPhase.Countdown)
@@ -107,7 +116,7 @@ namespace MadMachines
                 Transform gate = checkpoints[NextCheckpoint - 1].transform;
                 participant.Recover(gate.position + Vector3.up * 1.5f + gate.forward * 3f, gate.rotation);
             }
-            else participant.Recover(spawn, Quaternion.identity);
+            else participant.Recover(spawn, spawnRotation);
             if (Phase == SessionPhase.Running && Mode != ChallengeMode.Shooting) startTime -= 3f;
         }
 
@@ -145,7 +154,7 @@ namespace MadMachines
                 _ => "Все ворота пройдены"
             };
             Phase = SessionPhase.Results;
-            if (PersistRecords) LocalRecords.Save(Mode, Result);
+            if (PersistRecords) LocalRecords.Save(Mode, Result, trackId);
             Finished?.Invoke(Mode, Result);
         }
 

@@ -39,19 +39,23 @@ namespace MadMachines
             }
             for (int i = 0; i < Mathf.Min(vehicle.WheelCount, wheelAnchors.Length); i++)
             {
-                Transform anchor = wheelAnchors[i];
-                if (anchor == null)
-                {
-                    continue;
-                }
-                VehicleWheel wheel = vehicle.GetWheelDefinition(i);
-                VehicleWheelState state = vehicle.GetWheelVisualState(i);
-                anchor.position = vehicle.transform.TransformPoint(wheel.GetPosition(state.Extension));
-                anchor.rotation = vehicle.transform.rotation * Quaternion.Euler(0f, state.Steering, 0f);
-                if (wheelSuspensions != null && i < wheelSuspensions.Length && wheelSuspensions[i] != null)
-                {
-                    wheelSuspensions[i].Apply(vehicle.transform, wheel, state);
-                }
+                ApplyWheelPose(i, vehicle.GetWheelVisualState(i));
+            }
+        }
+
+        public void ApplyWheelPose(int index, VehicleWheelState state)
+        {
+            Transform anchor = wheelAnchors[index];
+            if (anchor == null)
+            {
+                return;
+            }
+            VehicleWheel wheel = vehicle.GetWheelDefinition(index);
+            anchor.position = vehicle.transform.TransformPoint(wheel.GetPosition(state.Extension));
+            anchor.rotation = vehicle.transform.rotation * Quaternion.Euler(0f, state.Steering, 0f);
+            if (wheelSuspensions != null && index < wheelSuspensions.Length && wheelSuspensions[index] != null)
+            {
+                wheelSuspensions[index].Apply(vehicle.transform, wheel, state);
             }
         }
     }

@@ -11,6 +11,8 @@ namespace MadMachines.Editor
     public static class PlaygroundEditor
     {
         private const string ScenePath = "Assets/MadMachines/Scenes/Playground.unity";
+        private const string QuarryScenePath = "Assets/MadMachines/Scenes/Quarry.unity";
+        private const string VehiclePath = "Assets/MadMachines/Vehicles/T100.asset";
         private const string PendingKey = "MadMachines.Verify";
         private static double deadline;
         private static bool probeStarted;
@@ -52,7 +54,8 @@ namespace MadMachines.Editor
             wrecker.Mass = 35;
             wrecker.Impulse = 24000;
             wrecker.Color = new Color(1, 0.22f, 0.08f);
-            GameObject root = PlaygroundBuilder.Build(new[] { machineGun, cannon, wrecker });
+            VehicleDefinition vehicle = AssetDatabase.LoadAssetAtPath<VehicleDefinition>(VehiclePath);
+            GameObject root = PlaygroundBuilder.Build(new[] { machineGun, cannon, wrecker }, vehicle);
             int materialIndex = 0;
             foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>())
             {
@@ -111,11 +114,30 @@ namespace MadMachines.Editor
         {
             if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             Generate();
-            Directory.CreateDirectory("Builds/MadMachines");
+            BuildWindowsPlayer(ScenePath, "Builds/MadMachines/MadMachines.exe");
+        }
+
+        [MenuItem("Tools/Mad Machines/Quarry/Open offline")]
+        public static void OpenQuarry()
+        {
+            if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                EditorSceneManager.OpenScene(QuarryScenePath);
+        }
+
+        [MenuItem("Tools/Mad Machines/Quarry/Build Windows offline player")]
+        public static void BuildQuarryWindows()
+        {
+            if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            BuildWindowsPlayer(QuarryScenePath, "Builds/MadMachines/Quarry/MadMachines.exe");
+        }
+
+        private static void BuildWindowsPlayer(string scenePath, string output)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(output));
             UnityEditor.Build.Reporting.BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
-                scenes = new[] { ScenePath },
-                locationPathName = "Builds/MadMachines/MadMachines.exe",
+                scenes = new[] { scenePath },
+                locationPathName = output,
                 target = BuildTarget.StandaloneWindows64,
                 options = BuildOptions.None
             });

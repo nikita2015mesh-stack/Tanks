@@ -3,29 +3,26 @@ using UnityEngine;
 
 namespace MadMachines.Networking
 {
-    // Run before the unchanged VehiclePhysics.FixedUpdate so it consumes this step's command.
+    // Run before VehiclePhysics.FixedUpdate so it consumes this step's command.
     [DefaultExecutionOrder(-100)]
     [RequireComponent(typeof(VehiclePhysics))]
     public sealed class NetworkVehicle : NetworkBehaviour
     {
-        [SerializeField] private Transform turret;
-        [SerializeField] private Transform barrel;
-        [SerializeField] private Transform muzzle;
-        [SerializeField] private Transform[] wheelMeshes;
-        [SerializeField] private Renderer hullRenderer;
+        // The T100 chassis uses Ignore Raycast so its own suspension probes miss it.
+        internal const int HitLayers = (1 << 0) | (1 << 2);
+        [SerializeField] private VehicleDefinition definition;
         [SerializeField] private NetworkBallisticProjectile projectilePrefab;
         private readonly NetworkVariable<ulong> controller = new NetworkVariable<ulong>(NetworkManager.ServerClientId);
         private readonly NetworkVariable<int> slot = new NetworkVariable<int>();
-        private readonly NetworkVariable<Vector3> aim = new NetworkVariable<Vector3>(Vector3.forward);
-        private readonly NetworkVariable<float> steering = new NetworkVariable<float>();
-        private readonly NetworkVariable<Vector4> wheelHeights = new NetworkVariable<Vector4>(Vector4.one * -0.65f);
         private readonly NetworkVariable<float> speed = new NetworkVariable<float>();
         private readonly NetworkVariable<int> hits = new NetworkVariable<int>();
         private readonly NetworkVariable<int> shots = new NetworkVariable<int>();
         private readonly NetworkCommandBuffer commands = new NetworkCommandBuffer();
-        private readonly NetworkShotCooldown shotCooldown = new NetworkShotCooldown();
         private readonly int[] rejected = new int[7];
         private VehiclePhysics vehicle;
+        private VehicleVisuals visuals;
+        private WeaponSystem weapons;
+        private WeaponSystem.ProjectileLauncher launcher;
         private double nextSpeedUpdate;
         private double nextDiagnostic;
         private int accepted;
@@ -45,39 +42,43 @@ namespace MadMachines.Networking
         public int Hits => hits.Value;
         public int Shots => shots.Value;
         public float Speed => speed.Value;
-        public Vector3 AimDirection => muzzle.forward;
-        public Vector3 MuzzlePosition => muzzle.position;
+        public string DisplayName => definition.DisplayName;
+        public Vector3 MuzzlePosition => weapons.MuzzlePosition;
         public Rigidbody Body => vehicle.Body;
 
-        public void Configure(Transform mount, Transform gun, Transform end, Transform[] wheels, Renderer hull, NetworkBallisticProjectile projectile)
+        public void Configure(VehicleDefinition vehicleDefinition, NetworkBallisticProjectile projectile)
         {
-            turret = mount;
-            barrel = gun;
-            muzzle = end;
-            wheelMeshes = wheels;
-            hullRenderer = hull;
+            definition = vehicleDefinition;
             projectilePrefab = projectile;
         }
 
         public void ValidateConfiguration(GameObject expectedProjectile)
         {
-            if (turret == null || barrel == null || muzzle == null || hullRenderer == null ||
-                projectilePrefab == null || projectilePrefab.gameObject != expectedProjectile ||
-                wheelMeshes == null || wheelMeshes.Length != 4)
-                throw new System.InvalidOperationException("NetworkVehicle is missing its turret, barrel, muzzle, hull, four wheels, or registered projectile reference.");
-            if (!turret.IsChildOf(transform) || !barrel.IsChildOf(turret) || !muzzle.IsChildOf(barrel))
-                throw new System.InvalidOperationException("NetworkVehicle has an invalid turret, barrel, or muzzle hierarchy.");
-            foreach (Transform wheel in wheelMeshes)
-                if (wheel == null || !wheel.IsChildOf(transform))
-                    throw new System.InvalidOperationException("NetworkVehicle has a wheel outside its hierarchy.");
+            VehiclePhysics physics = GetComponent<VehiclePhysics>();
+            VehicleVisuals presentation = GetComponentInChildren<VehicleVisuals>(true);
+            WeaponSystem armament = GetComponent<WeaponSystem>();
+            if (definition == null || definition.Prefab == null || definition.Prefab.WheelCount != physics.WheelCount ||
+                presentation == null || presentation.Vehicle != physics || presentation.WheelAnchorCount != physics.WheelCount ||
+                physics.WheelCount > default(NetworkPhysicsPose).Wheels.Capacity)
+                throw new System.InvalidOperationException("NetworkVehicle requires a shared vehicle definition and visual bindings for every wheel.");
+            if (projectilePrefab == null || projectilePrefab.gameObject != expectedProjectile ||
+                projectilePrefab.Definition == null || armament == null || !armament.HasValidMount ||
+                armament.IndexOf(projectilePrefab.Definition) < 0)
+                throw new System.InvalidOperationException("NetworkVehicle requires its registered projectile and a matching weapon on the shared vehicle.");
         }
 
         private void Awake()
         {
             vehicle = GetComponent<VehiclePhysics>();
+            visuals = GetComponentInChildren<VehicleVisuals>(true);
+            weapons = GetComponent<WeaponSystem>();
+            launcher = LaunchProjectile;
+            weapons.Select(weapons.IndexOf(projectilePrefab.Definition));
             // A prefab can exist for a frame before spawn: do not run local physics commands.
             vehicle.Authority = false;
             vehicle.enabled = false;
+            weapons.Authority = false;
+            visuals.enabled = false;
         }
 
         public void InitializeServer(int playerSlot, ulong clientId)
@@ -92,25 +93,16 @@ namespace MadMachines.Networking
             System.Array.Clear(rejected, 0, rejected.Length);
             accepted = timeouts = 0;
             hadFreshInput = false;
-            shotCooldown.Reset();
+            weapons.ResetReload();
             nextSpeedUpdate = 0;
             nextDiagnostic = Time.realtimeSinceStartupAsDouble + 5;
             vehicle.Authority = IsServer;
             vehicle.enabled = IsServer;
+            weapons.Authority = IsServer;
             if (IsServer)
             {
                 controller.Value = initialController;
                 slot.Value = initialSlot;
-                aim.Value = transform.forward;
-            }
-            ApplyAim(aim.Value, true);
-            if (IsClient && hullRenderer != null)
-            {
-                Color color = Slot == 0 ? new Color(1f, 0.3f, 0.08f) : new Color(0.08f, 0.5f, 1f);
-                MaterialPropertyBlock properties = new MaterialPropertyBlock();
-                properties.SetColor("_BaseColor", color);
-                properties.SetColor("_Color", color);
-                hullRenderer.SetPropertyBlock(properties);
             }
         }
 
@@ -121,6 +113,7 @@ namespace MadMachines.Networking
             vehicle.Submit(default);
             vehicle.Authority = false;
             vehicle.enabled = false;
+            weapons.Authority = false;
         }
 
         public void SendCommand(NetworkVehicleCommand command)
@@ -153,14 +146,14 @@ namespace MadMachines.Networking
                 Steering = latest.Steering,
                 Handbrake = latest.Handbrake
             } : new VehicleCommand { Handbrake = true });
-            steering.Value = fresh ? latest.Steering : 0f;
-            wheelHeights.Value = new Vector4(vehicle.GetWheelPosition(0).y, vehicle.GetWheelPosition(1).y,
-                vehicle.GetWheelPosition(2).y, vehicle.GetWheelPosition(3).y);
             if (fresh)
             {
-                ApplyAim(latest.Aim, true);
-                aim.Value = muzzle.forward;
-                if (latest.Fire) Fire(now);
+                weapons.Aim(latest.Aim);
+                if (latest.Fire && weapons.RequestFire(launcher))
+                {
+                    shots.Value++;
+                    ShowMuzzleFlashRpc(weapons.MuzzlePosition);
+                }
             }
             if (now >= nextSpeedUpdate)
             {
@@ -182,6 +175,7 @@ namespace MadMachines.Networking
             vehicle.Submit(new VehicleCommand { Handbrake = true });
             vehicle.Authority = false;
             vehicle.enabled = false;
+            weapons.Authority = false;
         }
 
         private void OnEnable()
@@ -189,62 +183,56 @@ namespace MadMachines.Networking
             if (!IsSpawned || vehicle == null) return;
             vehicle.Authority = IsServer;
             vehicle.enabled = IsServer;
+            weapons.Authority = IsServer;
         }
 
-        private void LateUpdate()
+        internal void CapturePresentation(ref NetworkPhysicsPose pose)
         {
-            if (!IsSpawned || !IsClient) return;
-            ApplyAim(aim.Value, false);
-            // Sandbox-only primitive wheels; the single-player visual system is not involved.
-            if (wheelMeshes == null) return;
-            for (int i = 0; i < Mathf.Min(4, wheelMeshes.Length); i++)
+            pose.AimAngles = weapons.AimAngles;
+            for (int i = 0; i < vehicle.WheelCount; i++)
             {
-                if (wheelMeshes[i] == null) continue;
-                wheelMeshes[i].localRotation = Quaternion.Euler(0f, i < 2 ? steering.Value * 28f : 0f, 90f);
-                Vector3 position = wheelMeshes[i].localPosition;
-                position.y = Mathf.Lerp(position.y, wheelHeights.Value[i], 1f - Mathf.Exp(-20f * Time.deltaTime));
-                wheelMeshes[i].localPosition = position;
+                VehicleWheelState wheel = vehicle.GetWheelVisualState(i);
+                pose.Wheels.Add(new Vector3(wheel.Extension, wheel.Steering, wheel.Rotation));
             }
         }
 
-        private void ApplyAim(Vector3 direction, bool immediate)
+        internal void ApplyPresentation(NetworkPhysicsPose pose)
         {
-            Vector3 local = transform.InverseTransformDirection(direction.normalized);
-            float yaw = Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
-            float pitch = Mathf.Clamp(-Mathf.Asin(Mathf.Clamp(local.y, -1f, 1f)) * Mathf.Rad2Deg, -45f, 15f);
-            Quaternion targetYaw = Quaternion.Euler(0f, yaw, 0f);
-            Quaternion targetPitch = Quaternion.Euler(pitch, 0f, 0f);
-            float blend = immediate ? 1f : 1f - Mathf.Exp(-20f * Time.deltaTime);
-            turret.localRotation = Quaternion.Slerp(turret.localRotation, targetYaw, blend);
-            barrel.localRotation = Quaternion.Slerp(barrel.localRotation, targetPitch, blend);
+            if (pose.Wheels.Length != vehicle.WheelCount) return;
+            weapons.ApplyAimAngles(pose.AimAngles);
+            for (int i = 0; i < pose.Wheels.Length; i++)
+            {
+                Vector3 wheel = pose.Wheels[i];
+                visuals.ApplyWheelPose(i, new VehicleWheelState { Extension = wheel.x, Steering = wheel.y, Rotation = wheel.z });
+            }
         }
 
-        private void Fire(double now)
+        private bool LaunchProjectile(WeaponDefinition weapon, Vector3 position, Vector3 direction, VehiclePhysics owner, int shotId)
         {
-            if (!shotCooldown.TryBegin(now)) return;
             // Do not allow the barrel to shoot through a wall or through another chassis.
-            Vector3 path = muzzle.position - turret.position;
+            Vector3 mount = weapons.MountPosition;
+            Vector3 path = position - mount;
             // SphereCast does not report colliders already overlapping its starting sphere.
-            foreach (Collider overlap in Physics.OverlapSphere(turret.position, NetworkBallisticProjectile.Radius, 1, QueryTriggerInteraction.Ignore))
+            foreach (Collider overlap in Physics.OverlapSphere(mount, weapon.Size, HitLayers, QueryTriggerInteraction.Ignore))
             {
-                if (overlap.attachedRigidbody != Body) return;
+                if (overlap.attachedRigidbody != Body) return false;
             }
-            foreach (RaycastHit hit in Physics.SphereCastAll(turret.position, NetworkBallisticProjectile.Radius,
-                path.normalized, path.magnitude, 1, QueryTriggerInteraction.Ignore))
+            foreach (RaycastHit hit in Physics.SphereCastAll(mount, weapon.Size, path.normalized,
+                path.magnitude, HitLayers, QueryTriggerInteraction.Ignore))
             {
-                if (hit.collider.attachedRigidbody != Body) return;
+                if (hit.rigidbody != Body) return false;
             }
-            foreach (Collider overlap in Physics.OverlapSphere(muzzle.position, NetworkBallisticProjectile.Radius, 1, QueryTriggerInteraction.Ignore))
+            foreach (Collider overlap in Physics.OverlapSphere(position, weapon.Size, HitLayers, QueryTriggerInteraction.Ignore))
             {
-                if (overlap.attachedRigidbody != Body) return;
+                if (overlap.attachedRigidbody != Body) return false;
             }
             NetworkBallisticProjectile projectile = null;
             try
             {
-                projectile = Instantiate(projectilePrefab, muzzle.position, Quaternion.LookRotation(muzzle.forward));
+                projectile = Instantiate(projectilePrefab, position, Quaternion.LookRotation(direction));
                 projectile.NetworkObject.Spawn(true);
                 if (!projectile.IsSpawned) throw new System.InvalidOperationException("Netcode did not spawn the projectile.");
-                projectile.Launch(this, muzzle.forward * 38f + Body.linearVelocity);
+                projectile.Launch(this, owner, direction, shotId);
             }
             catch (System.Exception error)
             {
@@ -254,10 +242,16 @@ namespace MadMachines.Networking
                     else Destroy(projectile.gameObject);
                 }
                 Debug.LogError($"[MM NET] Could not spawn a projectile for vehicle {NetworkObjectId}: {error}");
-                return;
+                return false;
             }
-            Body.AddForceAtPosition(-muzzle.forward * 1600f, muzzle.position, ForceMode.Impulse);
-            shots.Value++;
+            return true;
+        }
+
+        [Rpc(SendTo.NotServer, InvokePermission = RpcInvokePermission.Server)]
+        private void ShowMuzzleFlashRpc(Vector3 position)
+        {
+            if (IsClient && !IsServer && !NetworkManager.ShutdownInProgress)
+                PlaygroundEffects.Flash(position, projectilePrefab.Definition.Color, 0.8f, 0.1f);
         }
 
         public void RegisterHit()

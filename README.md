@@ -14,6 +14,8 @@
 
 **Сетевая разработка** — в том же проекте откройте меню **Tools → Mad Machines → Networking**, соберите и запустите Development Server, затем откройте NetworkSandbox и нажмите Play.
 
+**Карьер** — откройте [Quarry.unity](Assets/MadMachines/Scenes/Quarry.unity) или выберите **Tools → Mad Machines → Quarry → Open offline**. В Play Mode выберите «Свободная езда» и езжайте вперёд от ремонтной базы к подъёму. Для покатушек вдвоём используйте **Quarry → Open online** и сборки карьера. [Сетевой запуск](Docs/NETWORKING.md#карьер-по-сети)
+
 ## Структура проекта
 
 Корень репозитория — Unity-проект Mad Machines. `Assets/MadMachines/` содержит код, сцену и ресурсы игры; `Assets/ASEED/` и `Assets/_ThirdPartyLocal/` — стороннюю модель T100 и подготовленные колёса. `Assets/Settings/`, Input System и пакеты содержат общие настройки и зависимости.

@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Text;
 
 namespace MadMachines.Networking
 {
@@ -7,18 +8,20 @@ namespace MadMachines.Networking
     {
         // Keep the NGO handshake stable across application protocol updates so approval can report a reason.
         public const ushort NgoHandshakeVersion = 3;
-        public const ushort Version = 3;
+        public const ushort Version = 5;
         public const string RejectionPrefix = "[MM INCOMPATIBLE] ";
-        private const int PayloadSize = 12;
+        private const int MapIdOffset = 12;
 
-        public static byte[] CreatePayload(uint vehicleHash, uint projectileHash)
+        public static byte[] CreatePayload(uint vehicleHash, uint projectileHash, string mapId = "sandbox")
         {
-            byte[] payload = new byte[PayloadSize];
+            byte[] map = Encoding.UTF8.GetBytes(mapId);
+            byte[] payload = new byte[MapIdOffset + map.Length];
             payload[0] = (byte)'M';
             payload[1] = (byte)'M';
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2), Version);
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4), vehicleHash);
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(8), projectileHash);
+            map.CopyTo(payload, MapIdOffset);
             return payload;
         }
 
@@ -35,10 +38,15 @@ namespace MadMachines.Networking
                 diagnostic = $"Protocol mismatch (client {version}, server {Version}).";
                 return RejectionPrefix + $"Несовместимая версия сети. Клиент: {version}, сервер: {Version}. Пересоберите обе роли из одной версии проекта.";
             }
-            if (client.Length != PayloadSize || !client.AsSpan(4).SequenceEqual(server.AsSpan(4)))
+            if (client.Length < MapIdOffset || !client.AsSpan(4, 8).SequenceEqual(server.AsSpan(4, 8)))
             {
-                diagnostic = "Network prefab IDs do not match. Build both players from the same NetworkSandbox assets.";
-                return RejectionPrefix + "Не совпадают сетевые prefab. Соберите клиент и сервер из одних ресурсов NetworkSandbox.";
+                diagnostic = "Network prefab IDs do not match. Build both players from the same project revision.";
+                return RejectionPrefix + "Не совпадают сетевые префабы. Соберите клиент и сервер из одной версии проекта.";
+            }
+            if (!client.AsSpan(MapIdOffset).SequenceEqual(server.AsSpan(MapIdOffset)))
+            {
+                diagnostic = "Client and server selected different maps.";
+                return RejectionPrefix + "Клиент и сервер запущены на разных картах. Откройте ту же карту, что на сервере.";
             }
             diagnostic = null;
             return null;

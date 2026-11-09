@@ -4,10 +4,13 @@ namespace MadMachines
 {
     public sealed class PlaygroundHud : MonoBehaviour
     {
+        private static readonly string[] DriveNames = { "Полный", "Передний", "Задний" };
+
         [SerializeField] private LocalPlayerInput input;
         [SerializeField] private VehiclePhysics vehicle;
         [SerializeField] private WeaponSystem weapons;
         [SerializeField] private ChallengeManager rules;
+        [SerializeField] private string locationName;
         private GUIStyle title;
         private GUIStyle text;
         private GUIStyle button;
@@ -49,7 +52,7 @@ namespace MadMachines
                 GUI.color = Color.white;
                 GUILayout.BeginArea(new Rect(55, 48, 460, height - 90));
                 GUILayout.Label(PlaygroundText.Title, title);
-                GUILayout.Label(PlaygroundText.Subtitle, small);
+                GUILayout.Label(string.IsNullOrEmpty(locationName) ? PlaygroundText.Subtitle : locationName, small);
                 GUILayout.Space(14);
                 if (rules.Phase == SessionPhase.Results)
                 {
@@ -58,7 +61,7 @@ namespace MadMachines
                     GUILayout.Label(rules.ResultDetail, text);
                     GUILayout.Space(10);
                     GUILayout.Label("ЛОКАЛЬНЫЙ ТОП-5", small);
-                    var records = LocalRecords.Read(rules.Mode);
+                    var records = LocalRecords.Read(rules.Mode, rules.TrackId);
                     for (int i = 0; i < records.Count; i++)
                         GUILayout.Label($"{i + 1}.   {FormatResult(records[i])}", small);
                     if (GUILayout.Button("ПОВТОРИТЬ", button)) input.Begin(rules.Mode);
@@ -74,6 +77,12 @@ namespace MadMachines
                 else
                 {
                     GUILayout.Label("Один безумный багги. Три испытания.", text);
+                    if (vehicle.DriveMode != VehicleDrive.Configured)
+                    {
+                        GUILayout.Label("ПРИВОД", small);
+                        int selectedDrive = GUILayout.Toolbar((int)vehicle.DriveMode - 1, DriveNames);
+                        if (selectedDrive >= 0) vehicle.DriveMode = (VehicleDrive)(selectedDrive + 1);
+                    }
                     GUILayout.Space(12);
                     if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Free), button)) input.Begin(ChallengeMode.Free);
                     if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Race), button)) input.Begin(ChallengeMode.Race);

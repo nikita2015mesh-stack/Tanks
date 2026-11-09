@@ -11,11 +11,11 @@ namespace MadMachines
         {
             public List<float> Values = new List<float>();
         }
-        public static List<float> Read(ChallengeMode mode)
+        public static List<float> Read(ChallengeMode mode, string trackId = null)
         {
             try
             {
-                return JsonUtility.FromJson<Entries>(PlayerPrefs.GetString("MadMachines.Records.v1." + mode, "{}"))?.Values ?? new List<float>();
+                return JsonUtility.FromJson<Entries>(PlayerPrefs.GetString(Key(mode, trackId), "{}"))?.Values ?? new List<float>();
             }
             catch (ArgumentException)
             {
@@ -23,14 +23,19 @@ namespace MadMachines
             }
         }
 
-        public static void Save(ChallengeMode mode, float value)
+        public static void Save(ChallengeMode mode, float value, string trackId = null)
         {
-            List<float> values = Read(mode);
+            List<float> values = Read(mode, trackId);
             values.Add(value);
             values.Sort((a, b) => mode == ChallengeMode.Shooting ? b.CompareTo(a) : a.CompareTo(b));
             if (values.Count > 5) values.RemoveRange(5, values.Count - 5);
-            PlayerPrefs.SetString("MadMachines.Records.v1." + mode, JsonUtility.ToJson(new Entries { Values = values }));
+            PlayerPrefs.SetString(Key(mode, trackId), JsonUtility.ToJson(new Entries { Values = values }));
             PlayerPrefs.Save();
+        }
+
+        private static string Key(ChallengeMode mode, string trackId)
+        {
+            return string.IsNullOrEmpty(trackId) ? "MadMachines.Records.v1." + mode : $"MadMachines.Records.v1.Tracks.{trackId}.{mode}";
         }
     }
 }

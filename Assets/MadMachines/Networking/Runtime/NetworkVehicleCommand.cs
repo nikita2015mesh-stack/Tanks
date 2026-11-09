@@ -115,19 +115,4 @@ namespace MadMachines.Networking
             return fresh;
         }
     }
-
-    public sealed class NetworkShotCooldown
-    {
-        public const double Interval = 1.15;
-        private double nextShot;
-
-        public void Reset() => nextShot = 0;
-
-        public bool TryBegin(double now)
-        {
-            if (double.IsNaN(now) || double.IsInfinity(now) || now < nextShot) return false;
-            nextShot = now + Interval;
-            return true;
-        }
-    }
 }

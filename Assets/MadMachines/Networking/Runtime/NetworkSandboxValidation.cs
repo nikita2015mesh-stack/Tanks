@@ -21,8 +21,8 @@ namespace MadMachines.Networking
         {
             ValidateReplication(prefab);
             NetworkBallisticProjectile projectile = prefab.GetComponent<NetworkBallisticProjectile>();
-            if (projectile == null || !projectile.enabled || prefab.GetComponent<SphereCollider>() == null)
-                throw new InvalidOperationException("NetworkProjectile is missing its network adapter or sphere collider.");
+            if (projectile == null || !projectile.enabled || projectile.Definition == null || prefab.GetComponent<SphereCollider>() == null)
+                throw new InvalidOperationException("NetworkProjectile is missing its network adapter, weapon definition, or sphere collider.");
         }
 
         private static void ValidateReplication(GameObject prefab)

@@ -15,7 +15,10 @@ namespace MadMachines.Networking.Editor
     {
         private const string Root = "Assets/MadMachines/Networking";
         private const string Generated = Root + "/Generated";
+        private const string VehicleDefinitionPath = "Assets/MadMachines/Vehicles/T100.asset";
+        private const string CannonDefinitionPath = "Assets/MadMachines/Generated/Ballisticcannon.asset";
         public const string ScenePath = Root + "/Scenes/NetworkSandbox.unity";
+        private const string QuarryScenePath = "Assets/MadMachines/Scenes/QuarryOnline.unity";
 
         [MenuItem("Tools/Mad Machines/Networking/Create or open sandbox")]
         public static void OpenSandbox()
@@ -46,13 +49,15 @@ namespace MadMachines.Networking.Editor
                 SceneManager.SetActiveScene(sandbox);
                 Material ground = MaterialAsset("Ground", new Color(0.22f, 0.28f, 0.3f));
                 Material concrete = MaterialAsset("Concrete", new Color(0.48f, 0.5f, 0.55f));
-                Material hull = MaterialAsset("Hull", Color.white);
-                Material rubber = MaterialAsset("Rubber", new Color(0.06f, 0.07f, 0.08f));
                 Material shot = MaterialAsset("Projectile", new Color(1f, 0.8f, 0.12f));
                 Material orange = MaterialAsset("SpawnOrange", new Color(0.8f, 0.24f, 0.05f));
                 Material blue = MaterialAsset("SpawnBlue", new Color(0.05f, 0.3f, 0.8f));
-                NetworkBallisticProjectile projectile = ProjectilePrefab(shot);
-                GameObject vehicle = VehiclePrefab(hull, rubber, projectile);
+                VehicleDefinition definition = AssetDatabase.LoadAssetAtPath<VehicleDefinition>(VehicleDefinitionPath);
+                WeaponDefinition cannon = AssetDatabase.LoadAssetAtPath<WeaponDefinition>(CannonDefinitionPath);
+                if (definition == null || definition.Prefab == null || cannon == null)
+                    throw new InvalidOperationException("Для NetworkSandbox нужны описание T100 с префабом и штатная баллистическая пушка.");
+                NetworkBallisticProjectile projectile = ProjectilePrefab(shot, cannon);
+                GameObject vehicle = VehiclePrefab(definition, projectile);
 
                 GameObject arena = new GameObject("Network arena");
                 Primitive("Ground", PrimitiveType.Cube, arena.transform, new Vector3(0f, -0.5f, 0f), new Vector3(120f, 1f, 120f), ground, true);
@@ -62,7 +67,7 @@ namespace MadMachines.Networking.Editor
                 Primitive("West wall", PrimitiveType.Cube, arena.transform, new Vector3(-60f, 2f, 0f), new Vector3(1f, 4f, 120f), concrete, true);
                 Primitive("Obstacle 1", PrimitiveType.Cube, arena.transform, new Vector3(-12f, 1f, 14f), new Vector3(5f, 2f, 3f), concrete, true);
                 Primitive("Obstacle 2", PrimitiveType.Cube, arena.transform, new Vector3(12f, 1.5f, -14f), new Vector3(3f, 3f, 7f), concrete, true);
-                GameObject ramp = Primitive("Ramp", PrimitiveType.Cube, arena.transform, new Vector3(15f, 0.8f, 18f), new Vector3(7f, 1f, 8f), concrete, true);
+                GameObject ramp = Primitive("Ramp", PrimitiveType.Cube, arena.transform, new Vector3(15f, 0.35f, 18f), new Vector3(7f, 1f, 8f), concrete, true);
                 ramp.transform.localRotation = Quaternion.Euler(-12f, 0f, 0f);
                 Primitive("Spawn pad 0", PrimitiveType.Cube, arena.transform, new Vector3(-8f, 0.01f, 0f), new Vector3(5f, 0.02f, 5f), orange, false);
                 Primitive("Spawn pad 1", PrimitiveType.Cube, arena.transform, new Vector3(8f, 0.01f, 0f), new Vector3(5f, 0.02f, 5f), blue, false);
@@ -72,7 +77,7 @@ namespace MadMachines.Networking.Editor
                 {
                     starts[i] = new GameObject("Spawn " + i).transform;
                     starts[i].SetParent(arena.transform);
-                    starts[i].SetPositionAndRotation(new Vector3(i == 0 ? -8f : 8f, 1.3f, 0f), Quaternion.Euler(0f, i == 0 ? 90f : -90f, 0f));
+                    starts[i].SetPositionAndRotation(new Vector3(i == 0 ? -8f : 8f, 1.5f, 0f), Quaternion.Euler(0f, i == 0 ? 90f : -90f, 0f));
                 }
                 Light light = new GameObject("Sandbox sunlight").AddComponent<Light>();
                 light.type = LightType.Directional;
@@ -128,7 +133,7 @@ namespace MadMachines.Networking.Editor
             return material;
         }
 
-        private static NetworkBallisticProjectile ProjectilePrefab(Material material)
+        private static NetworkBallisticProjectile ProjectilePrefab(Material material, WeaponDefinition definition)
         {
             string path = Generated + "/NetworkProjectile.prefab";
             GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
@@ -138,45 +143,30 @@ namespace MadMachines.Networking.Editor
             {
                 shot.name = "NetworkProjectile";
                 shot.layer = 2;
-                shot.transform.localScale = Vector3.one * NetworkBallisticProjectile.Radius * 2f;
+                shot.transform.localScale = Vector3.one * definition.Size * 2f;
                 shot.GetComponent<Renderer>().sharedMaterial = material;
                 Rigidbody body = shot.AddComponent<Rigidbody>();
-                body.mass = 4f;
-                body.useGravity = true;
+                body.mass = definition.Mass;
+                body.useGravity = definition.Gravity;
                 body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
                 AddReplication(shot);
-                shot.AddComponent<NetworkBallisticProjectile>().Configure(material);
+                shot.AddComponent<NetworkBallisticProjectile>().Configure(definition);
                 return PrefabUtility.SaveAsPrefabAsset(shot, path).GetComponent<NetworkBallisticProjectile>();
             }
             finally { UnityEngine.Object.DestroyImmediate(shot); }
         }
 
-        private static GameObject VehiclePrefab(Material hullMaterial, Material rubber, NetworkBallisticProjectile projectile)
+        private static GameObject VehiclePrefab(VehicleDefinition definition, NetworkBallisticProjectile projectile)
         {
             string path = Generated + "/NetworkVehicle.prefab";
             GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (existing != null) return existing;
-            GameObject vehicle = new GameObject("NetworkVehicle");
+            GameObject vehicle = (GameObject)PrefabUtility.InstantiatePrefab(definition.Prefab.gameObject);
             try
             {
-                vehicle.AddComponent<Rigidbody>();
-                vehicle.AddComponent<VehiclePhysics>().Configure();
+                vehicle.name = "NetworkVehicle";
                 AddReplication(vehicle);
-                Renderer hull = Primitive("Hull", PrimitiveType.Cube, vehicle.transform, Vector3.zero, new Vector3(1.8f, 0.75f, 3.3f), hullMaterial, true).GetComponent<Renderer>();
-                Primitive("Cabin", PrimitiveType.Cube, vehicle.transform, new Vector3(0f, 0.5f, -0.35f), new Vector3(1.4f, 0.5f, 1.2f), rubber, false);
-                Transform[] wheels = new Transform[4];
-                for (int i = 0; i < wheels.Length; i++)
-                {
-                    Vector3 position = new Vector3(i % 2 == 0 ? -1.05f : 1.05f, -0.43f, i < 2 ? 1.25f : -1.25f);
-                    wheels[i] = Primitive("Wheel " + i, PrimitiveType.Cylinder, vehicle.transform, position, new Vector3(0.86f, 0.18f, 0.86f), rubber, false).transform;
-                    wheels[i].localRotation = Quaternion.Euler(0f, 0f, 90f);
-                }
-                Transform turret = Child("Turret", vehicle.transform, new Vector3(0f, 0.7f, 0.2f));
-                Primitive("Turret geometry", PrimitiveType.Cube, turret, Vector3.zero, new Vector3(0.6f, 0.3f, 0.6f), hullMaterial, false);
-                Transform barrel = Child("Barrel", turret, Vector3.zero);
-                Primitive("Barrel geometry", PrimitiveType.Cube, barrel, new Vector3(0f, 0f, 1f), new Vector3(0.18f, 0.18f, 2f), rubber, false);
-                Transform muzzle = Child("Muzzle", barrel, new Vector3(0f, 0f, 2.3f));
-                vehicle.AddComponent<NetworkVehicle>().Configure(turret, barrel, muzzle, wheels, hull, projectile);
+                vehicle.AddComponent<NetworkVehicle>().Configure(definition, projectile);
                 return PrefabUtility.SaveAsPrefabAsset(vehicle, path);
             }
             finally { UnityEngine.Object.DestroyImmediate(vehicle); }
@@ -215,14 +205,6 @@ namespace MadMachines.Networking.Editor
             AssetDatabase.SaveAssets();
         }
 
-        private static Transform Child(string name, Transform parent, Vector3 position)
-        {
-            Transform child = new GameObject(name).transform;
-            child.SetParent(parent, false);
-            child.localPosition = position;
-            return child;
-        }
-
         private static GameObject Primitive(string name, PrimitiveType type, Transform parent, Vector3 position, Vector3 scale, Material material, bool collider)
         {
             GameObject item = GameObject.CreatePrimitive(type);
@@ -253,21 +235,41 @@ namespace MadMachines.Networking.Editor
         public static void BuildLinuxServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
             NetworkBuildOutput.LinuxServer, NetworkBuildOutput.LinuxServerExecutable);
 
-        private static bool Build(BuildTarget target, StandaloneBuildSubtarget subtarget, string outputTarget, string executable)
+        [MenuItem("Tools/Mad Machines/Quarry/Open online")]
+        public static void OpenQuarryOnline()
+        {
+            if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                EditorSceneManager.OpenScene(QuarryScenePath);
+        }
+
+        [MenuItem("Tools/Mad Machines/Quarry/Build Development Server")]
+        public static void BuildQuarryServer() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Server,
+            NetworkBuildOutput.WindowsServer, NetworkBuildOutput.WindowsServerExecutable, QuarryScenePath);
+
+        [MenuItem("Tools/Mad Machines/Quarry/Build Windows client")]
+        public static void BuildQuarryClient() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Player,
+            NetworkBuildOutput.WindowsClient, NetworkBuildOutput.WindowsClientExecutable, QuarryScenePath);
+
+        [MenuItem("Tools/Mad Machines/Quarry/Build Linux dedicated server")]
+        public static void BuildQuarryLinuxServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
+            NetworkBuildOutput.LinuxServer, NetworkBuildOutput.LinuxServerExecutable, QuarryScenePath);
+
+        private static bool Build(BuildTarget target, StandaloneBuildSubtarget subtarget, string outputTarget, string executable,
+            string scenePath = ScenePath)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode) throw new BuildFailedException("Остановите Play Mode перед сборкой.");
             if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return false;
             if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target))
                 throw new BuildFailedException("Установите через Unity Hub модуль поддержки " + target + ", а для сервера — Dedicated Server Build Support.");
-            Generate();
-            ValidateSandbox();
+            if (scenePath == ScenePath) Generate();
+            ValidateScene(scenePath);
             // Build into a new directory so a running player and the previous publication stay usable.
             string id = Guid.NewGuid().ToString("N");
             string output = NetworkBuildOutput.GetBuildPath(outputTarget, executable, id);
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
-                scenes = new[] { ScenePath },
+                scenes = new[] { scenePath },
                 locationPathName = output,
                 target = target,
                 subtarget = (int)subtarget,
@@ -281,18 +283,24 @@ namespace MadMachines.Networking.Editor
         }
 
         [MenuItem("Tools/Mad Machines/Networking/Validate sandbox assets")]
-        public static void ValidateSandbox()
+        public static void ValidateSandbox() => ValidateScene(ScenePath);
+
+        [MenuItem("Tools/Mad Machines/Quarry/Validate online assets")]
+        public static void ValidateQuarryOnline() => ValidateScene(QuarryScenePath);
+
+        private static void ValidateScene(string path)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 throw new InvalidOperationException("Проверяйте ресурсы вне Play Mode.");
-            if (!File.Exists(ScenePath)) throw new InvalidOperationException("Сначала выполните Create or open sandbox.");
+            if (!File.Exists(path)) throw new FileNotFoundException("Не найдена сцена для сетевой игры.", path);
+            string sceneName = Path.GetFileNameWithoutExtension(path);
             Scene previousScene = SceneManager.GetActiveScene();
-            Scene scene = SceneManager.GetSceneByPath(ScenePath);
+            Scene scene = SceneManager.GetSceneByPath(path);
             bool closeAfterValidation = false;
             if (!scene.IsValid() || !scene.isLoaded)
             {
                 bool replaceUntitled = ShouldReplaceUntitledScene();
-                scene = EditorSceneManager.OpenScene(ScenePath, replaceUntitled ? OpenSceneMode.Single : OpenSceneMode.Additive);
+                scene = EditorSceneManager.OpenScene(path, replaceUntitled ? OpenSceneMode.Single : OpenSceneMode.Additive);
                 closeAfterValidation = !replaceUntitled;
             }
             try
@@ -302,17 +310,17 @@ namespace MadMachines.Networking.Editor
                 {
                     foreach (NetworkSandboxSession candidate in root.GetComponentsInChildren<NetworkSandboxSession>(true))
                     {
-                        if (session != null) throw new InvalidOperationException("NetworkSandbox содержит несколько сессий.");
+                        if (session != null) throw new InvalidOperationException(sceneName + " содержит несколько сессий.");
                         session = candidate;
                     }
                     if (root.GetComponentInChildren<Camera>(true) != null || root.GetComponentInChildren<AudioListener>(true) != null ||
                         root.GetComponentInChildren<NetworkClientView>(true) != null || root.GetComponentInChildren<NetworkManager>(true) != null ||
                         root.GetComponentInChildren<NetworkObject>(true) != null)
-                        throw new InvalidOperationException("NetworkSandbox должен создавать камеру, HUD, NetworkManager и сетевые объекты только при запуске.");
+                        throw new InvalidOperationException(sceneName + " должна создавать камеру, HUD, NetworkManager и сетевые объекты только при запуске.");
                 }
                 if (session == null || !session.isActiveAndEnabled) throw new InvalidOperationException("Нет активной Network session.");
                 session.ValidateConfiguration();
-                Debug.Log("[MM NET] Ссылки и настройки NetworkSandbox проверены. Сеть и физика этой командой не запускаются.");
+                Debug.Log($"[MM NET] Ссылки и настройки {sceneName} проверены. Сеть и физика этой командой не запускаются.");
             }
             finally
             {

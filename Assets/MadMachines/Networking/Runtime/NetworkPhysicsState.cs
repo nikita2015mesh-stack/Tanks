@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -10,15 +11,29 @@ namespace MadMachines.Networking
         public Vector3 Position;
         public Quaternion Rotation;
         public double ServerTime;
+        public Vector2 AimAngles;
+        // Per-wheel extension in metres, steering and spin in degrees, in VehiclePhysics order.
+        public FixedList512Bytes<Vector3> Wheels;
 
         public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
         {
             serializer.SerializeValue(ref Position);
             serializer.SerializeValue(ref Rotation);
             serializer.SerializeValue(ref ServerTime);
+            serializer.SerializeValue(ref AimAngles);
+            byte wheelCount = (byte)Wheels.Length;
+            serializer.SerializeValue(ref wheelCount);
+            if (serializer.IsReader) Wheels.Length = wheelCount;
+            for (int i = 0; i < wheelCount; i++)
+            {
+                Vector3 wheel = Wheels[i];
+                serializer.SerializeValue(ref wheel);
+                if (serializer.IsReader) Wheels[i] = wheel;
+            }
         }
 
-        public bool Equals(NetworkPhysicsPose other) => Position.Equals(other.Position) && Rotation.Equals(other.Rotation) && ServerTime.Equals(other.ServerTime);
+        public bool Equals(NetworkPhysicsPose other) => Position.Equals(other.Position) && Rotation.Equals(other.Rotation) &&
+            ServerTime.Equals(other.ServerTime) && AimAngles.Equals(other.AimAngles) && Wheels.Equals(other.Wheels);
     }
 
     public sealed class NetworkPoseBuffer
@@ -47,6 +62,15 @@ namespace MadMachines.Networking
             float blend = Mathf.Clamp01((float)((renderTime - from.ServerTime) / (to.ServerTime - from.ServerTime)));
             result.Position = Vector3.Lerp(from.Position, to.Position, blend);
             result.Rotation = Quaternion.Slerp(from.Rotation, to.Rotation, blend);
+            result.AimAngles = new Vector2(Mathf.LerpAngle(from.AimAngles.x, to.AimAngles.x, blend),
+                Mathf.LerpAngle(from.AimAngles.y, to.AimAngles.y, blend));
+            for (int i = 0; i < Mathf.Min(from.Wheels.Length, to.Wheels.Length); i++)
+            {
+                Vector3 start = from.Wheels[i];
+                Vector3 end = to.Wheels[i];
+                result.Wheels[i] = new Vector3(Mathf.Lerp(start.x, end.x, blend), Mathf.Lerp(start.y, end.y, blend),
+                    Mathf.LerpAngle(start.z, end.z, blend));
+            }
             return true;
         }
     }
@@ -61,6 +85,7 @@ namespace MadMachines.Networking
             default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkPoseBuffer samples = new NetworkPoseBuffer();
         private Rigidbody body;
+        private NetworkVehicle vehicle;
         private CollisionDetectionMode serverCollisionMode;
         private NetworkTickSystem ticks;
         private Vector3 initialScale;
@@ -68,6 +93,7 @@ namespace MadMachines.Networking
         private void Awake()
         {
             body = GetComponent<Rigidbody>();
+            vehicle = GetComponent<NetworkVehicle>();
             initialScale = transform.localScale;
             serverCollisionMode = body.collisionDetectionMode;
             SetBodyAuthority(false);
@@ -96,7 +122,7 @@ namespace MadMachines.Networking
             {
                 pose.OnValueChanged += ReceivePose;
                 samples.Push(pose.Value);
-                ApplyPose(pose.Value.Position, pose.Value.Rotation);
+                ApplyPose(pose.Value);
             }
         }
 
@@ -137,12 +163,14 @@ namespace MadMachines.Networking
         private void PublishPose()
         {
             if (!IsServer || !IsSpawned || NetworkManager.ShutdownInProgress) return;
-            pose.Value = new NetworkPhysicsPose
+            NetworkPhysicsPose sample = new NetworkPhysicsPose
             {
                 Position = body.position,
                 Rotation = body.rotation,
                 ServerTime = NetworkManager.ServerTime.Time
             };
+            if (vehicle != null) vehicle.CapturePresentation(ref sample);
+            pose.Value = sample;
         }
 
         private void ReceivePose(NetworkPhysicsPose previous, NetworkPhysicsPose current)
@@ -155,13 +183,14 @@ namespace MadMachines.Networking
             if (!IsSpawned || IsServer) return;
             double renderTime = NetworkManager.ServerTime.Time - InterpolationDelay;
             // Hold the newest authoritative pose on underrun; never simulate or extrapolate a hit.
-            if (samples.Sample(renderTime, out NetworkPhysicsPose sample)) ApplyPose(sample.Position, sample.Rotation);
+            if (samples.Sample(renderTime, out NetworkPhysicsPose sample)) ApplyPose(sample);
         }
 
-        private void ApplyPose(Vector3 position, Quaternion rotation)
+        private void ApplyPose(NetworkPhysicsPose sample)
         {
-            transform.SetPositionAndRotation(position, rotation);
+            transform.SetPositionAndRotation(sample.Position, sample.Rotation);
             transform.localScale = initialScale;
+            if (vehicle != null) vehicle.ApplyPresentation(sample);
         }
 
 #if UNITY_EDITOR

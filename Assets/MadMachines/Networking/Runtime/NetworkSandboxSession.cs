@@ -18,6 +18,8 @@ namespace MadMachines.Networking
         [SerializeField] private GameObject projectilePrefab;
         [SerializeField] private Transform[] spawnPoints;
         [SerializeField] private bool serverInEditor;
+        [SerializeField] private string mapId = "sandbox";
+        [SerializeField] private string locationName = "Сетевой полигон";
         private readonly Dictionary<ulong, int> slots = new Dictionary<ulong, int>();
         private readonly Dictionary<ulong, NetworkObject> players = new Dictionary<ulong, NetworkObject>();
         private NetworkLaunchOptions options;
@@ -43,6 +45,7 @@ namespace MadMachines.Networking
         public NetworkConnectionMode Mode => options?.Mode ?? NetworkConnectionMode.Offline;
         public string Status { get; private set; } = "Отключено";
         public bool IsServerProcess { get; private set; }
+        public string LocationName => locationName;
         public bool CanConnect => ready && !IsServerProcess && Manager != null && !Manager.IsListening && !Manager.ShutdownInProgress;
         public bool CanDisconnect => ready && !IsServerProcess && Manager != null && (wantsConnection || Manager.IsListening);
 
@@ -93,7 +96,7 @@ namespace MadMachines.Networking
                     NetworkTopology = NetworkTopologyTypes.ClientServer,
                     ProtocolVersion = NetworkSessionProtocol.NgoHandshakeVersion,
                     ConnectionData = NetworkSessionProtocol.CreatePayload(vehiclePrefab.GetComponent<NetworkObject>().PrefabIdHash,
-                        projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash),
+                        projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash, mapId),
                     TickRate = 30,
                     ClientConnectionBufferTimeout = 8,
                     EnableSceneManagement = false,
@@ -122,7 +125,7 @@ namespace MadMachines.Networking
                     if (!string.IsNullOrEmpty(options.StopFile) && File.Exists(options.StopFile))
                         throw new InvalidOperationException("The stop file already exists: " + options.StopFile);
                     if (!Manager.StartServer()) throw new InvalidOperationException("Could not start the server. Check the port and transport log.");
-                    Debug.Log($"{ServerReadyMarker} UDP {options.BindAddress}:{Port}, protocol {NetworkSessionProtocol.Version}.");
+                    Debug.Log($"{ServerReadyMarker} UDP {options.BindAddress}:{Port}, protocol {NetworkSessionProtocol.Version}, map {mapId}.");
                     Log("Server ready. No local player was spawned.");
                 }
                 else
@@ -155,6 +158,8 @@ namespace MadMachines.Networking
         {
             if (transform.parent != null)
                 throw new InvalidOperationException("The network session must be a root scene object.");
+            if (string.IsNullOrWhiteSpace(mapId))
+                throw new InvalidOperationException("The network session requires a map ID for connection approval.");
             if (spawnPoints == null || spawnPoints.Length != 2 || spawnPoints[0] == null || spawnPoints[1] == null || spawnPoints[0] == spawnPoints[1])
                 throw new InvalidOperationException("NetworkSandbox requires two distinct spawn points.");
             foreach (Transform start in spawnPoints)

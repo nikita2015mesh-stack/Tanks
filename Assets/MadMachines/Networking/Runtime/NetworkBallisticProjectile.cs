@@ -3,115 +3,57 @@ using UnityEngine;
 
 namespace MadMachines.Networking
 {
-    [RequireComponent(typeof(Rigidbody))]
+    // Set the size before NetworkPhysicsState caches the prefab scale.
+    [DefaultExecutionOrder(-100)]
+    [RequireComponent(typeof(Rigidbody), typeof(SphereCollider))]
     public sealed class NetworkBallisticProjectile : NetworkBehaviour
     {
-        public const float Radius = 0.15f;
-        private const float Lifetime = 6f;
-        private const float ImpactImpulse = 3200f;
-        [SerializeField] private Material impactMaterial;
-        private Rigidbody body;
-        private Collider projectileCollider;
-        private Rigidbody ownerBody;
-        private Vector3 previous;
-        private Vector3 flightVelocity;
-        private double expires;
-        private bool finished;
+        [SerializeField] private WeaponDefinition definition;
+        private SphereCollider projectileCollider;
+        private Projectile simulation;
 
-        public void Configure(Material material) => impactMaterial = material;
+        public WeaponDefinition Definition => definition;
+
+        public void Configure(WeaponDefinition weapon) => definition = weapon;
 
         private void Awake()
         {
-            body = GetComponent<Rigidbody>();
-            projectileCollider = GetComponent<Collider>();
+            transform.localScale = Vector3.one * definition.Size * 2f;
+            projectileCollider = GetComponent<SphereCollider>();
             projectileCollider.enabled = false;
         }
 
         public override void OnNetworkSpawn()
         {
-            finished = false;
-            ownerBody = null;
-            flightVelocity = Vector3.zero;
-            // Client projectiles are only interpolated render objects, never impact authorities.
+            // Clients only display the replicated projectile.
             projectileCollider.enabled = IsServer;
-            previous = transform.position;
-            expires = Time.realtimeSinceStartupAsDouble + Lifetime;
+            if (IsClient && !IsServer) Projectile.AddTrail(gameObject, definition);
         }
 
         public override void OnNetworkDespawn()
         {
-            finished = true;
             projectileCollider.enabled = false;
-            ownerBody = null;
+            if (simulation != null) simulation.enabled = false;
         }
 
-        public void Launch(NetworkVehicle owner, Vector3 velocity)
+        public void Launch(NetworkVehicle shooter, VehiclePhysics vehicle, Vector3 direction, int shotId)
         {
-            if (!IsServer || !IsSpawned) return;
-            ownerBody = owner.Body;
-            foreach (Collider collider in owner.GetComponentsInChildren<Collider>())
-                Physics.IgnoreCollision(projectileCollider, collider);
-            body.linearVelocity = velocity;
-            flightVelocity = velocity;
-            Debug.Log($"[MM NET] Spawned projectile {NetworkObjectId} from vehicle {owner.NetworkObjectId}.");
+            simulation = gameObject.AddComponent<Projectile>();
+            simulation.Initialize(definition, direction, vehicle, shotId, NetworkVehicle.HitLayers, Finish);
+            Debug.Log($"[MM NET] Spawned projectile {NetworkObjectId} from vehicle {shooter.NetworkObjectId}.");
         }
 
-        private void FixedUpdate()
+        private void Finish(Collider target, Vector3 point)
         {
-            if (!IsServer || !IsSpawned || finished || NetworkManager.ShutdownInProgress) return;
-            if (Time.realtimeSinceStartupAsDouble >= expires)
-            {
-                finished = true;
-                Debug.Log($"[MM NET] Projectile {NetworkObjectId} expired.");
-                NetworkObject.Despawn(true);
-                return;
-            }
-            // CCD plus a swept sphere prevents fast shots skipping thin static colliders.
-            Vector3 delta = body.position - previous;
-            if (delta.sqrMagnitude > 0.000001f)
-            {
-                RaycastHit nearest = default;
-                bool found = false;
-                foreach (RaycastHit hit in Physics.SphereCastAll(previous, Radius, delta.normalized, delta.magnitude, 1, QueryTriggerInteraction.Ignore))
-                {
-                    if ((ownerBody != null && hit.rigidbody == ownerBody) || hit.rigidbody == body) continue;
-                    if (!found || hit.distance < nearest.distance)
-                    {
-                        nearest = hit;
-                        found = true;
-                    }
-                }
-                if (found)
-                {
-                    Impact(nearest.collider, nearest.point);
-                    return;
-                }
-            }
-            previous = body.position;
-            flightVelocity = body.linearVelocity;
-        }
-
-        private void OnCollisionEnter(Collision collision)
-        {
-            if (!IsServer || !IsSpawned || !isActiveAndEnabled || finished || (ownerBody != null && collision.rigidbody == ownerBody)) return;
-            Vector3 point = collision.contactCount > 0 ? collision.GetContact(0).point : body.position;
-            Impact(collision.collider, point);
-        }
-
-        private void Impact(Collider target, Vector3 point)
-        {
-            if (finished || !IsServer || !IsSpawned || NetworkManager.ShutdownInProgress) return;
-            finished = true;
-            Rigidbody affected = target.attachedRigidbody;
-            if (affected != null && !affected.isKinematic)
-                affected.AddForceAtPosition(flightVelocity.normalized * ImpactImpulse, point, ForceMode.Impulse);
-            NetworkVehicle vehicle = target.GetComponentInParent<NetworkVehicle>();
+            if (!IsServer || !IsSpawned || NetworkManager.ShutdownInProgress) return;
+            NetworkVehicle vehicle = target != null ? target.GetComponentInParent<NetworkVehicle>() : null;
             if (vehicle != null)
             {
                 vehicle.RegisterHit();
                 Debug.Log($"[MM NET] Projectile {NetworkObjectId} hit vehicle {vehicle.NetworkObjectId}. Total hits: {vehicle.Hits}.");
             }
-            else Debug.Log($"[MM NET] Projectile {NetworkObjectId} collided with {target.name}.");
+            else if (target != null) Debug.Log($"[MM NET] Projectile {NetworkObjectId} collided with {target.name}.");
+            else Debug.Log($"[MM NET] Projectile {NetworkObjectId} expired.");
             ShowImpactRpc(point);
             NetworkObject.Despawn(true);
         }
@@ -119,16 +61,8 @@ namespace MadMachines.Networking
         [Rpc(SendTo.NotServer, InvokePermission = RpcInvokePermission.Server)]
         private void ShowImpactRpc(Vector3 point)
         {
-            if (!IsClient || IsServer || NetworkManager.ShutdownInProgress) return;
-            GameObject flash = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            flash.name = "Network impact presentation";
-            flash.layer = 2;
-            flash.GetComponent<Collider>().enabled = false;
-            Destroy(flash.GetComponent<Collider>());
-            flash.transform.position = point;
-            flash.transform.localScale = Vector3.one * 0.8f;
-            flash.GetComponent<Renderer>().sharedMaterial = impactMaterial;
-            Destroy(flash, 0.25f);
+            if (IsClient && !IsServer && !NetworkManager.ShutdownInProgress)
+                PlaygroundEffects.Flash(point, definition.Color, Mathf.Max(0.4f, definition.Radius * 1.5f), 0.35f);
         }
     }
 }

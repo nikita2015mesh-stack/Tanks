@@ -37,8 +37,8 @@ namespace MadMachines.Networking
             view.nearClipPlane = 0.1f;
             view.farClipPlane = 350f;
             view.fieldOfView = 65f;
-            view.backgroundColor = new Color(0.12f, 0.17f, 0.23f);
-            view.clearFlags = CameraClearFlags.SolidColor;
+            view.backgroundColor = RenderSettings.fog ? RenderSettings.fogColor : new Color(0.12f, 0.17f, 0.23f);
+            view.clearFlags = RenderSettings.fog && RenderSettings.skybox != null ? CameraClearFlags.Skybox : CameraClearFlags.SolidColor;
             ResetCamera();
         }
 
@@ -160,7 +160,7 @@ namespace MadMachines.Networking
             Vector3 direction = Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
             Vector3 target = view.transform.position + direction * 150f;
             float nearest = 150f;
-            foreach (RaycastHit hit in Physics.RaycastAll(view.transform.position, direction, nearest, 1, QueryTriggerInteraction.Ignore))
+            foreach (RaycastHit hit in Physics.RaycastAll(view.transform.position, direction, nearest, NetworkVehicle.HitLayers, QueryTriggerInteraction.Ignore))
             {
                 if (hit.rigidbody == localVehicle.Body || hit.distance >= nearest) continue;
                 target = hit.point;
@@ -176,7 +176,7 @@ namespace MadMachines.Networking
             Vector3 pivot = localVehicle.transform.position + Vector3.up * 1.6f;
             Vector3 offset = rotation * new Vector3(0f, 0f, -9f);
             float distance = offset.magnitude;
-            foreach (RaycastHit hit in Physics.SphereCastAll(pivot, 0.25f, offset.normalized, distance, 1, QueryTriggerInteraction.Ignore))
+            foreach (RaycastHit hit in Physics.SphereCastAll(pivot, 0.25f, offset.normalized, distance, NetworkVehicle.HitLayers, QueryTriggerInteraction.Ignore))
             {
                 if (hit.rigidbody != localVehicle.Body) distance = Mathf.Min(distance, Mathf.Max(0.3f, hit.distance - 0.15f));
             }
@@ -189,7 +189,7 @@ namespace MadMachines.Networking
         {
             if (session == null) return;
             GUILayout.BeginArea(new Rect(12f, 12f, 430f, 330f), GUI.skin.box);
-            GUILayout.Label("Безумные машины — сетевой полигон");
+            GUILayout.Label($"Безумные машины — {session.LocationName}");
             statusStyle ??= new GUIStyle(GUI.skin.label) { wordWrap = true };
             GUILayout.Label(session.Status, statusStyle);
             string mode = session.Mode == NetworkConnectionMode.Offline ? "Автономно" :
@@ -200,7 +200,7 @@ namespace MadMachines.Networking
                 ulong rtt = session.Transport.GetCurrentRtt(NetworkManager.ServerClientId);
                 GUILayout.Label($"Игрок: {session.Manager.LocalClientId}    RTT: {(rtt == 0 ? "ожидание" : rtt + " мс")}");
                 if (localVehicle != null)
-                    GUILayout.Label($"Машина {localVehicle.Slot + 1}    {localVehicle.Speed:0} км/ч\nВыстрелов: {localVehicle.Shots}    Попаданий по вам: {localVehicle.Hits}");
+                    GUILayout.Label($"{localVehicle.DisplayName} · Машина {localVehicle.Slot + 1}    {localVehicle.Speed:0} км/ч\nВыстрелов: {localVehicle.Shots}    Попаданий по вам: {localVehicle.Hits}");
                 if (GUILayout.Button("Вернуться к управлению")) CaptureCursor();
             }
             GUI.enabled = session.CanConnect;
