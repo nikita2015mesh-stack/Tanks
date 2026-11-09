@@ -69,7 +69,7 @@ namespace MadMachines.Networking
                 IsServerProcess = options.Server;
                 ValidateConfiguration();
                 if (NetworkManager.Singleton != null || GetComponent<NetworkManager>() != null)
-                    throw new InvalidOperationException("Уже существует NetworkManager. Откройте только NetworkSandbox и перезапустите Play Mode.");
+                    throw new InvalidOperationException("A NetworkManager already exists. Open only NetworkSandbox and restart Play Mode.");
                 previousFixedDeltaTime = Time.fixedDeltaTime;
                 previousTimeScale = Time.timeScale;
                 previousTargetFrameRate = Application.targetFrameRate;
@@ -118,12 +118,12 @@ namespace MadMachines.Networking
                     // The scene contains no camera/HUD. Server never creates either component.
                     foreach (Light light in FindObjectsByType<Light>(FindObjectsSortMode.None)) light.enabled = false;
                     Transport.SetConnectionData(true, options.Address, options.Port, options.BindAddress);
-                    Log($"Запуск выделенного сервера UDP {options.BindAddress}:{Port}; физика 50 Гц, сеть 30 Гц.");
+                    Log($"Starting dedicated server on UDP {options.BindAddress}:{Port} (physics 50 Hz, network 30 Hz).");
                     if (!string.IsNullOrEmpty(options.StopFile) && File.Exists(options.StopFile))
-                        throw new InvalidOperationException("Файл остановки уже существует: " + options.StopFile);
-                    if (!Manager.StartServer()) throw new InvalidOperationException("Не удалось запустить сервер; проверьте порт и журнал транспорта.");
-                    Debug.Log($"{ServerReadyMarker} UDP {options.BindAddress}:{Port}; протокол {NetworkSessionProtocol.Version}.");
-                    Log("Сервер готов. Локальный игрок не создаётся.");
+                        throw new InvalidOperationException("The stop file already exists: " + options.StopFile);
+                    if (!Manager.StartServer()) throw new InvalidOperationException("Could not start the server. Check the port and transport log.");
+                    Debug.Log($"{ServerReadyMarker} UDP {options.BindAddress}:{Port}, protocol {NetworkSessionProtocol.Version}.");
+                    Log("Server ready. No local player was spawned.");
                 }
                 else
                 {
@@ -143,8 +143,8 @@ namespace MadMachines.Networking
             {
                 ready = false;
                 if (Manager != null && Manager.IsListening) Manager.Shutdown();
-                Status = "Ошибка запуска: " + error.Message;
-                Debug.LogError("[MM NET] " + error);
+                Status = "Ошибка запуска. Подробности в журнале.";
+                Debug.LogError("[MM NET] Startup failed: " + error);
                 if (IsServerProcess) StopServer(1);
                 else if (GetComponent<NetworkClientView>() == null && (NetworkManager.Singleton == null || Manager == NetworkManager.Singleton))
                     gameObject.AddComponent<NetworkClientView>().Configure(this);
@@ -154,16 +154,16 @@ namespace MadMachines.Networking
         public void ValidateConfiguration()
         {
             if (transform.parent != null)
-                throw new InvalidOperationException("Network session должна быть корневым объектом сцены.");
+                throw new InvalidOperationException("The network session must be a root scene object.");
             if (spawnPoints == null || spawnPoints.Length != 2 || spawnPoints[0] == null || spawnPoints[1] == null || spawnPoints[0] == spawnPoints[1])
-                throw new InvalidOperationException("NetworkSandbox: нужны две разные точки появления.");
+                throw new InvalidOperationException("NetworkSandbox requires two distinct spawn points.");
             foreach (Transform start in spawnPoints)
                 if (start.gameObject.scene != gameObject.scene)
-                    throw new InvalidOperationException("NetworkSandbox: точки появления должны находиться в сцене сессии.");
+                    throw new InvalidOperationException("NetworkSandbox spawn points must belong to the session scene.");
             NetworkSandboxValidation.ValidateVehicle(vehiclePrefab, projectilePrefab);
             NetworkSandboxValidation.ValidateProjectile(projectilePrefab);
             if (vehiclePrefab.GetComponent<NetworkObject>().PrefabIdHash == projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash)
-                throw new InvalidOperationException("У машины и снаряда совпадают сетевые идентификаторы prefab.");
+                throw new InvalidOperationException("The vehicle and projectile prefabs have the same network ID.");
         }
 
         public void Connect(string address, string port)
@@ -226,25 +226,25 @@ namespace MadMachines.Networking
         {
             response.CreatePlayerObject = false;
             response.Pending = false;
-            string incompatibility = NetworkSessionProtocol.CheckCompatibility(request.Payload, Manager.NetworkConfig.ConnectionData);
+            string incompatibility = NetworkSessionProtocol.CheckCompatibility(request.Payload, Manager.NetworkConfig.ConnectionData, out string diagnostic);
             if (incompatibility != null)
             {
                 response.Approved = false;
                 response.Reason = incompatibility;
-                Log($"Отклонено подключение {request.ClientNetworkId}: {incompatibility}");
+                Log($"Rejected client {request.ClientNetworkId}: {diagnostic}");
                 return;
             }
             if (!ready || Manager.ShutdownInProgress || slots.Count >= 2 || slots.ContainsKey(request.ClientNetworkId))
             {
                 response.Approved = false;
                 response.Reason = ServerFullReason;
-                Log($"Отклонено подключение {request.ClientNetworkId}: {response.Reason}");
+                Log($"Rejected client {request.ClientNetworkId}: no player slot available.");
                 return;
             }
             int slot = slots.ContainsValue(0) ? 1 : 0;
             slots.Add(request.ClientNetworkId, slot);
             response.Approved = true;
-            Log($"Одобрено подключение {request.ClientNetworkId}; место {slot + 1}.");
+            Log($"Approved client {request.ClientNetworkId}, slot {slot + 1}.");
         }
 
         private void Connected(ulong clientId)
@@ -267,9 +267,9 @@ namespace MadMachines.Networking
                 NetworkObject player = instance.GetComponent<NetworkObject>();
                 instance.GetComponent<NetworkVehicle>().InitializeServer(slot, clientId);
                 player.Spawn(destroyWithScene: true);
-                if (!player.IsSpawned) throw new InvalidOperationException("NGO не создал машину.");
+                if (!player.IsSpawned) throw new InvalidOperationException("Netcode did not spawn the vehicle.");
                 players.Add(clientId, player);
-                Log($"Игрок {clientId} подключён; машина {player.NetworkObjectId}, место {slot + 1}; машин {players.Count}/2.");
+                Log($"Client {clientId} joined with vehicle {player.NetworkObjectId}, slot {slot + 1}. Vehicles: {players.Count}/2.");
             }
             catch (Exception error)
             {
@@ -281,7 +281,7 @@ namespace MadMachines.Networking
                 }
                 players.Remove(clientId);
                 slots.Remove(clientId);
-                Debug.LogError($"[MM NET] Не удалось создать машину игрока {clientId}: {error}");
+                Debug.LogError($"[MM NET] Could not spawn a vehicle for client {clientId}: {error}");
                 Manager.DisconnectClient(clientId, "Не удалось создать машину. См. журнал сервера.");
             }
         }
@@ -294,7 +294,7 @@ namespace MadMachines.Networking
                 players.Remove(clientId);
                 slots.Remove(clientId);
                 if (player != null && player.IsSpawned) player.Despawn(true);
-                Log($"Клиент {clientId} отключён; машин {players.Count}/2.");
+                Log($"Client {clientId} disconnected. Vehicles: {players.Count}/2.");
             }
             else if (wantsConnection && !applicationQuitting)
             {
@@ -326,7 +326,7 @@ namespace MadMachines.Networking
 
         private void TransportFailed()
         {
-            Debug.LogError("[MM NET] Ошибка транспорта. См. журнал.");
+            Debug.LogError("[MM NET] Network transport failed.");
             if (IsServerProcess) StopServer(1);
             else ScheduleRetry("Ошибка транспорта. См. журнал.");
         }
@@ -336,7 +336,7 @@ namespace MadMachines.Networking
             players.Clear();
             slots.Clear();
             ready = false;
-            Log("Сервер остановлен; сетевые объекты освобождены.");
+            Log("Server stopped. Network objects were released.");
         }
 
         private void ClientStopped(bool wasHost)
@@ -348,7 +348,7 @@ namespace MadMachines.Networking
         public void StopServer(int code = 0)
         {
             if (quitAfterShutdown) return;
-            Log("Завершение выделенного сервера…");
+            Log("Shutting down the dedicated server.");
             exitCode = code;
             quitAfterShutdown = true;
             if (Manager != null) Manager.Shutdown();
@@ -359,7 +359,7 @@ namespace MadMachines.Networking
             if (quitAfterShutdown && (Manager == null || (!Manager.IsListening && !Manager.ShutdownInProgress)))
             {
                 quitAfterShutdown = false;
-                Log("Завершение процесса, код " + exitCode + ".");
+                Log($"Exiting with code {exitCode}.");
 #if UNITY_EDITOR
                 UnityEditor.EditorApplication.isPlaying = false;
 #else
@@ -381,7 +381,7 @@ namespace MadMachines.Networking
         {
             applicationQuitting = true;
             wantsConnection = false;
-            Log("Приложение закрывается; завершение сетевой сессии.");
+            Log("Application is quitting. Closing the network session.");
             if (Manager != null && Manager.IsListening) Manager.Shutdown();
         }
 

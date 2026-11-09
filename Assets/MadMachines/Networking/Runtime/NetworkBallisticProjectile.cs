@@ -53,7 +53,7 @@ namespace MadMachines.Networking
                 Physics.IgnoreCollision(projectileCollider, collider);
             body.linearVelocity = velocity;
             flightVelocity = velocity;
-            Debug.Log($"[MM NET] Создан снаряд {NetworkObjectId}, машина {owner.NetworkObjectId}.");
+            Debug.Log($"[MM NET] Spawned projectile {NetworkObjectId} from vehicle {owner.NetworkObjectId}.");
         }
 
         private void FixedUpdate()
@@ -62,7 +62,7 @@ namespace MadMachines.Networking
             if (Time.realtimeSinceStartupAsDouble >= expires)
             {
                 finished = true;
-                Debug.Log($"[MM NET] Снаряд {NetworkObjectId}: истекло время жизни.");
+                Debug.Log($"[MM NET] Projectile {NetworkObjectId} expired.");
                 NetworkObject.Despawn(true);
                 return;
             }
@@ -109,9 +109,9 @@ namespace MadMachines.Networking
             if (vehicle != null)
             {
                 vehicle.RegisterHit();
-                Debug.Log($"[MM NET] Снаряд {NetworkObjectId}: попадание в машину {vehicle.NetworkObjectId}; всего попаданий {vehicle.Hits}.");
+                Debug.Log($"[MM NET] Projectile {NetworkObjectId} hit vehicle {vehicle.NetworkObjectId}. Total hits: {vehicle.Hits}.");
             }
-            else Debug.Log($"[MM NET] Снаряд {NetworkObjectId}: столкновение с {target.name}.");
+            else Debug.Log($"[MM NET] Projectile {NetworkObjectId} collided with {target.name}.");
             ShowImpactRpc(point);
             NetworkObject.Despawn(true);
         }

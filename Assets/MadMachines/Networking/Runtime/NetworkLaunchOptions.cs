@@ -31,7 +31,7 @@ namespace MadMachines.Networking
                     continue;
                 }
                 if (i + 1 >= arguments.Length || arguments[i + 1].StartsWith("-", StringComparison.Ordinal))
-                    throw new ArgumentException("Не задано значение " + key);
+                    throw new ArgumentException("Missing value for " + key);
                 string value = arguments[++i];
                 switch (key)
                 {
@@ -43,11 +43,11 @@ namespace MadMachines.Networking
                     case "-mm-bind": options.BindAddress = value; break;
                     case "-mm-port":
                         if (!ushort.TryParse(value, out ushort parsed) || parsed == 0)
-                            throw new ArgumentException("Порт должен быть числом от 1 до 65535.");
+                            throw new ArgumentException("Port must be an integer from 1 to 65535.");
                         port = parsed;
                         break;
                     case "-mm-stop-file": options.StopFile = value; break;
-                    default: throw new ArgumentException("Неизвестный параметр: " + key);
+                    default: throw new ArgumentException("Unknown option: " + key);
                 }
             }
             if (!explicitMode && address != null && !options.Server) options.Mode = NetworkConnectionMode.RemoteOnline;
@@ -55,7 +55,7 @@ namespace MadMachines.Networking
             options.Address = address ?? (remote ? settings.remoteAddress : NetworkDevelopmentSettings.LocalAddress);
             options.Port = port ?? (ushort)(remote ? settings.remotePort : settings.localPort);
             if (!IsClientAddress(options.Address) || !IsIpv4(options.BindAddress))
-                throw new ArgumentException("Укажите числовой IPv4. Адрес клиента не может быть 0.0.0.0.");
+                throw new ArgumentException("Use numeric IPv4 addresses. The client address cannot be 0.0.0.0.");
             options.Address = IPAddress.Parse(options.Address).ToString();
             options.BindAddress = IPAddress.Parse(options.BindAddress).ToString();
             return options;
@@ -68,7 +68,7 @@ namespace MadMachines.Networking
                 case "offline": return NetworkConnectionMode.Offline;
                 case "development": return NetworkConnectionMode.DevelopmentOnline;
                 case "remote": return NetworkConnectionMode.RemoteOnline;
-                default: throw new ArgumentException("Режим подключения: offline, development или remote.");
+                default: throw new ArgumentException("Connection mode must be offline, development, or remote.");
             }
         }
 

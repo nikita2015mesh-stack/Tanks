@@ -34,7 +34,10 @@ namespace MadMachines.Networking
         private int initialSlot;
         private ulong initialController;
 
-        public string CommandDiagnostics => $"принято {accepted}; лимит {rejected[(int)CommandRejection.Rate]}; значения {rejected[(int)CommandRejection.Values]}; порядок {rejected[(int)CommandRejection.Sequence]}; владелец {rejected[(int)CommandRejection.Sender]}; неактивна {rejected[(int)CommandRejection.Inactive]}; тайм-ауты {timeouts}";
+        public string CommandDiagnostics =>
+            $"accepted={accepted}, rate_limited={rejected[(int)CommandRejection.Rate]}, " +
+            $"invalid={rejected[(int)CommandRejection.Values]}, out_of_order={rejected[(int)CommandRejection.Sequence]}, " +
+            $"wrong_sender={rejected[(int)CommandRejection.Sender]}, inactive={rejected[(int)CommandRejection.Inactive]}, timeouts={timeouts}";
 
         public ulong ControllerClientId => controller.Value;
         public bool IsLocalController => IsSpawned && IsClient && ControllerClientId == NetworkManager.LocalClientId;
@@ -61,12 +64,12 @@ namespace MadMachines.Networking
             if (turret == null || barrel == null || muzzle == null || hullRenderer == null ||
                 projectilePrefab == null || projectilePrefab.gameObject != expectedProjectile ||
                 wheelMeshes == null || wheelMeshes.Length != 4)
-                throw new System.InvalidOperationException("NetworkVehicle: отсутствуют ссылки башни, дула, корпуса, четырёх колёс или зарегистрированного снаряда.");
+                throw new System.InvalidOperationException("NetworkVehicle is missing its turret, barrel, muzzle, hull, four wheels, or registered projectile reference.");
             if (!turret.IsChildOf(transform) || !barrel.IsChildOf(turret) || !muzzle.IsChildOf(barrel))
-                throw new System.InvalidOperationException("NetworkVehicle: нарушена иерархия башни, ствола и дула.");
+                throw new System.InvalidOperationException("NetworkVehicle has an invalid turret, barrel, or muzzle hierarchy.");
             foreach (Transform wheel in wheelMeshes)
                 if (wheel == null || !wheel.IsChildOf(transform))
-                    throw new System.InvalidOperationException("NetworkVehicle: колесо не принадлежит машине.");
+                    throw new System.InvalidOperationException("NetworkVehicle has a wheel outside its hierarchy.");
         }
 
         private void Awake()
@@ -113,7 +116,7 @@ namespace MadMachines.Networking
 
         public override void OnNetworkDespawn()
         {
-            if (IsServer) Debug.Log($"[MM NET] Машина {NetworkObjectId}, итог команд: {CommandDiagnostics}.");
+            if (IsServer) Debug.Log($"[MM NET] Vehicle {NetworkObjectId} final command counts: {CommandDiagnostics}.");
             commands.Reset();
             vehicle.Submit(default);
             vehicle.Authority = false;
@@ -166,7 +169,7 @@ namespace MadMachines.Networking
             }
             if (now >= nextDiagnostic)
             {
-                Debug.Log($"[MM NET] Машина {NetworkObjectId}, клиент {ControllerClientId}: {CommandDiagnostics}.");
+                Debug.Log($"[MM NET] Vehicle {NetworkObjectId}, client {ControllerClientId}: {CommandDiagnostics}.");
                 nextDiagnostic = now + 5;
             }
         }
@@ -240,7 +243,7 @@ namespace MadMachines.Networking
             {
                 projectile = Instantiate(projectilePrefab, muzzle.position, Quaternion.LookRotation(muzzle.forward));
                 projectile.NetworkObject.Spawn(true);
-                if (!projectile.IsSpawned) throw new System.InvalidOperationException("NGO не создал снаряд.");
+                if (!projectile.IsSpawned) throw new System.InvalidOperationException("Netcode did not spawn the projectile.");
                 projectile.Launch(this, muzzle.forward * 38f + Body.linearVelocity);
             }
             catch (System.Exception error)
@@ -250,7 +253,7 @@ namespace MadMachines.Networking
                     if (projectile.NetworkObject.IsSpawned) projectile.NetworkObject.Despawn(true);
                     else Destroy(projectile.gameObject);
                 }
-                Debug.LogError($"[MM NET] Ошибка создания снаряда машины {NetworkObjectId}: {error}");
+                Debug.LogError($"[MM NET] Could not spawn a projectile for vehicle {NetworkObjectId}: {error}");
                 return;
             }
             Body.AddForceAtPosition(-muzzle.forward * 1600f, muzzle.position, ForceMode.Impulse);

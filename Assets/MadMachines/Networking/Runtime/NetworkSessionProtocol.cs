@@ -22,15 +22,25 @@ namespace MadMachines.Networking
             return payload;
         }
 
-        public static string CheckCompatibility(byte[] client, byte[] server)
+        public static string CheckCompatibility(byte[] client, byte[] server, out string diagnostic)
         {
             if (client == null || client.Length < 4 || client[0] != (byte)'M' || client[1] != (byte)'M')
+            {
+                diagnostic = "Missing Mad Machines protocol header. Rebuild the client.";
                 return RejectionPrefix + "Клиент не сообщил версию Mad Machines. Пересоберите клиент.";
+            }
             ushort version = BinaryPrimitives.ReadUInt16LittleEndian(client.AsSpan(2));
             if (version != Version)
+            {
+                diagnostic = $"Protocol mismatch (client {version}, server {Version}).";
                 return RejectionPrefix + $"Несовместимая версия сети. Клиент: {version}, сервер: {Version}. Пересоберите обе роли из одной версии проекта.";
+            }
             if (client.Length != PayloadSize || !client.AsSpan(4).SequenceEqual(server.AsSpan(4)))
+            {
+                diagnostic = "Network prefab IDs do not match. Build both players from the same NetworkSandbox assets.";
                 return RejectionPrefix + "Не совпадают сетевые prefab. Соберите клиент и сервер из одних ресурсов NetworkSandbox.";
+            }
+            diagnostic = null;
             return null;
         }
     }

@@ -116,12 +116,12 @@ namespace MadMachines.Networking.Editor
             Require(offline.Mode == NetworkConnectionMode.Offline, "Режим Offline");
 
             byte[] handshake = NetworkSessionProtocol.CreatePayload(1, 2);
-            Require(NetworkSessionProtocol.CheckCompatibility(handshake, handshake) == null, "Совместимый протокол");
-            Require(NetworkSessionProtocol.CheckCompatibility(Array.Empty<byte>(), handshake) != null, "Отсутствующий заголовок");
-            Require(NetworkSessionProtocol.CheckCompatibility(NetworkSessionProtocol.CreatePayload(2, 1), handshake) != null, "Разные prefab");
+            Require(NetworkSessionProtocol.CheckCompatibility(handshake, handshake, out _) == null, "Совместимый протокол");
+            Require(NetworkSessionProtocol.CheckCompatibility(Array.Empty<byte>(), handshake, out _) != null, "Отсутствующий заголовок");
+            Require(NetworkSessionProtocol.CheckCompatibility(NetworkSessionProtocol.CreatePayload(2, 1), handshake, out _) != null, "Разные prefab");
             byte[] oldHandshake = (byte[])handshake.Clone();
             oldHandshake[2] ^= 1;
-            Require(NetworkSessionProtocol.CheckCompatibility(oldHandshake, handshake).StartsWith(NetworkSessionProtocol.RejectionPrefix, StringComparison.Ordinal),
+            Require(NetworkSessionProtocol.CheckCompatibility(oldHandshake, handshake, out _).StartsWith(NetworkSessionProtocol.RejectionPrefix, StringComparison.Ordinal),
                 "Отказ несовместимого протокола с причиной");
             Debug.Log("[MM NET CHECK] Проверки команд, перезарядки, интерполяции, аргументов и протокола завершены. Сетевое соединение и PhysX проверяются отдельно.");
         }
