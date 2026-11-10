@@ -20,6 +20,10 @@ namespace MadMachines.Networking
         private uint sequence;
         private bool hasFocus = true;
         private GUIStyle statusStyle;
+        private bool captureWhenReady;
+        private bool waitForFireRelease = true;
+        private readonly GameSettingsPanel settings = new GameSettingsPanel();
+        public bool ReadyForPlay => localVehicle != null && localVehicle.IsSpawned;
 
         public void Configure(NetworkSandboxSession value)
         {
@@ -60,7 +64,7 @@ namespace MadMachines.Networking
                     pitch = 12f;
                     sequence = 0;
                     nextCommand = 0;
-                    if (hasFocus) CaptureCursor();
+                    captureWhenReady = true;
                     MoveCamera(true);
                 }
                 else
@@ -75,16 +79,28 @@ namespace MadMachines.Networking
                 return;
             }
 
+            if (GameFlow.Loading) return;
+            if (captureWhenReady && hasFocus)
+            {
+                captureWhenReady = false;
+                CaptureCursor();
+            }
             Keyboard keyboard = Keyboard.current;
             Mouse mouse = Mouse.current;
-            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) ReleaseCursor();
+            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
+            {
+                if (settings.IsOpen) settings.Close();
+                else if (Cursor.lockState == CursorLockMode.Locked) ReleaseCursor();
+                else CaptureCursor();
+            }
             bool controlling = hasFocus && Cursor.lockState == CursorLockMode.Locked;
             if (controlling && mouse != null)
             {
-                Vector2 delta = mouse.delta.ReadValue();
+                Vector2 delta = GameSettings.AdjustLook(mouse.delta.ReadValue());
                 yaw = Mathf.Repeat(yaw + delta.x * 0.12f, 360f);
                 pitch = Mathf.Clamp(pitch - delta.y * 0.12f, -40f, 25f);
-                if (mouse.leftButton.wasPressedThisFrame) fireUntil = Time.realtimeSinceStartupAsDouble + 0.1;
+                if (!mouse.leftButton.isPressed) waitForFireRelease = false;
+                if (!waitForFireRelease && mouse.leftButton.wasPressedThisFrame) fireUntil = Time.realtimeSinceStartupAsDouble + 0.1;
             }
             if (Time.realtimeSinceStartupAsDouble < nextCommand) return;
             nextCommand = Time.realtimeSinceStartupAsDouble + SendInterval;
@@ -97,7 +113,7 @@ namespace MadMachines.Networking
                 Steering = steering,
                 Handbrake = !controlling || (keyboard != null && keyboard.spaceKey.isPressed),
                 Aim = AimDirection(),
-                Fire = controlling && ((mouse != null && mouse.leftButton.isPressed) || Time.realtimeSinceStartupAsDouble < fireUntil)
+                Fire = controlling && !waitForFireRelease && ((mouse != null && mouse.leftButton.isPressed) || Time.realtimeSinceStartupAsDouble < fireUntil)
             });
         }
 
@@ -188,6 +204,11 @@ namespace MadMachines.Networking
         private void OnGUI()
         {
             if (session == null || GameFlow.Loading) return;
+            if (GameFlow.OnlineLaunchPending)
+            {
+                DrawGameMenu();
+                return;
+            }
             GUILayout.BeginArea(new Rect(12f, 12f, 430f, 430f), GUI.skin.box);
             GUILayout.Label($"Безумные машины — {session.LocationName}");
             statusStyle ??= new GUIStyle(GUI.skin.label) { wordWrap = true };
@@ -214,10 +235,37 @@ namespace MadMachines.Networking
             GUI.enabled = session.CanDisconnect;
             if (GUILayout.Button("Отключиться")) session.Disconnect();
             GUI.enabled = true;
-            if (Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene) && GUILayout.Button("В ГАРАЖ")) session.LeaveToGarage();
+            if (Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene) && GUILayout.Button("НА ГЛАВНЫЙ")) session.LeaveToMain();
             GUILayout.Label("WASD — движение · Пробел — ручник\nМышь — наведение · ЛКМ — пушка\nEsc — освободить курсор; сервер продолжает игру.");
             GUILayout.EndArea();
             if (localVehicle != null) GUI.Label(new Rect(Screen.width / 2f - 5f, Screen.height / 2f - 10f, 20f, 20f), "+");
+        }
+
+        private void DrawGameMenu()
+        {
+            if (ReadyForPlay && Cursor.lockState == CursorLockMode.Locked)
+            {
+                GUI.Box(new Rect(16, 16, 330, 75), $"{session.LocationName} · Свободная езда\n{localVehicle.Speed:0} км/ч · Пушка");
+                GUI.Label(new Rect(Screen.width / 2f - 5, Screen.height / 2f - 10, 20, 20), "+");
+                return;
+            }
+            float scale = Mathf.Max(0.1f, Mathf.Min(Screen.width / 1280f, Screen.height / 720f));
+            Matrix4x4 previous = GUI.matrix;
+            GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
+            GUILayout.BeginArea(new Rect(30, 30, 480, 630), GUI.skin.box);
+            if (settings.IsOpen) settings.Draw();
+            else
+            {
+                GUILayout.Label("МЕНЮ СЕССИИ · ИГРА ПРОДОЛЖАЕТСЯ");
+                GUILayout.Label(session.Status);
+                if (session.SessionInfo != null) GUILayout.Label(session.SessionInfo.Summary);
+                if (ReadyForPlay && GUILayout.Button("ПРОДОЛЖИТЬ", GUILayout.Height(43))) CaptureCursor();
+                if (GUILayout.Button("НАСТРОЙКИ", GUILayout.Height(43))) settings.Open();
+                if (GUILayout.Button("НА ГЛАВНЫЙ", GUILayout.Height(43))) session.LeaveToMain();
+                GUILayout.Label("Esc — закрыть меню. Выход на главный завершает ваше участие; другие игроки продолжают ездить.");
+            }
+            GUILayout.EndArea();
+            GUI.matrix = previous;
         }
 
         private void OnApplicationFocus(bool focused)
@@ -226,8 +274,9 @@ namespace MadMachines.Networking
             if (!focused) ReleaseCursor();
         }
 
-        private static void CaptureCursor()
+        private void CaptureCursor()
         {
+            waitForFireRelease = true;
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }

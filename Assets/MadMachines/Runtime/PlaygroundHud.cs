@@ -15,6 +15,8 @@ namespace MadMachines
         private GUIStyle text;
         private GUIStyle button;
         private GUIStyle small;
+        private readonly GameSettingsPanel settings = new GameSettingsPanel();
+        private bool confirmExit;
 
         private void Awake()
         {
@@ -31,8 +33,18 @@ namespace MadMachines
             input = local; vehicle = car; weapons = gun; rules = session;
         }
 
+        private void Update()
+        {
+            if (UnityEngine.InputSystem.Keyboard.current == null ||
+                !UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame) return;
+            // Input reads the flag from the preceding frame, regardless of Update order.
+            if (settings.IsOpen) settings.Close();
+            else if (confirmExit) confirmExit = false;
+        }
+
         private void OnGUI()
         {
+            input.MenuOverlayOpen = settings.IsOpen || confirmExit;
             if (GameFlow.Loading) return;
             if (title == null)
             {
@@ -55,52 +67,59 @@ namespace MadMachines
                 GUILayout.Label(PlaygroundText.Title, title);
                 GUILayout.Label(string.IsNullOrEmpty(locationName) ? PlaygroundText.Subtitle : locationName, small);
                 GUILayout.Space(14);
-                if (rules.Phase == SessionPhase.Results)
+                bool hasMain = Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene);
+                if (settings.IsOpen) settings.Draw();
+                else if (confirmExit)
+                {
+                    GUILayout.Label("Завершить заезд? Текущая попытка не будет записана.", text);
+                    if (GUILayout.Button("ЗАВЕРШИТЬ И ВЕРНУТЬСЯ", button)) input.OpenMenu();
+                    if (GUILayout.Button("ОСТАТЬСЯ", button)) confirmExit = false;
+                }
+                else if (rules.Phase == SessionPhase.Results)
                 {
                     GUILayout.Label(PlaygroundText.ModeName(rules.Mode), title);
                     GUILayout.Label(FormatResult(rules.Result), title);
                     GUILayout.Label(rules.ResultDetail, text);
-                    GUILayout.Space(10);
-                    GUILayout.Label("ЛОКАЛЬНЫЙ ТОП-5", small);
                     var records = LocalRecords.Read(rules.Mode, rules.TrackId);
-                    for (int i = 0; i < records.Count; i++)
-                        GUILayout.Label($"{i + 1}.   {FormatResult(records[i])}", small);
-                    if (GUILayout.Button("ПОВТОРИТЬ", button)) input.Begin(rules.Mode);
-                    if (GUILayout.Button("В ГАРАЖ", button)) input.OpenMenu();
+                    if (records.Count > 0) GUILayout.Label("Лучший результат: " + FormatResult(records[0]), text);
+                    if (GUILayout.Button(hasMain ? "НА ГЛАВНЫЙ" : "В МЕНЮ", button)) input.OpenMenu();
+                    if (!hasMain && GUILayout.Button("ПОВТОРИТЬ", button)) input.Begin(rules.Mode);
                 }
                 else if (input.Paused)
                 {
                     GUILayout.Label("ПАУЗА", title);
                     if (GUILayout.Button("ПРОДОЛЖИТЬ", button)) input.Resume();
-                    if (GUILayout.Button("НАЧАТЬ ЗАНОВО", button)) input.Begin(rules.Mode);
-                    if (GUILayout.Button("В ГАРАЖ", button)) input.OpenMenu();
+                    if (GUILayout.Button("НАСТРОЙКИ", button)) settings.Open();
+                    if (GUILayout.Button(hasMain ? "НА ГЛАВНЫЙ" : "В МЕНЮ", button))
+                    {
+                        if (rules.Mode != ChallengeMode.Free) confirmExit = true;
+                        else input.OpenMenu();
+                    }
+                    if (!hasMain && GUILayout.Button("НАЧАТЬ ЗАНОВО", button)) input.Begin(rules.Mode);
+                }
+                else if (hasMain)
+                {
+                    GUILayout.Label("Для выбора машины и запуска заезда откройте главный экран.", text);
+                    if (GUILayout.Button("НА ГЛАВНЫЙ", button)) input.OpenMenu();
                 }
                 else
                 {
-                    if (Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene) && GUILayout.Button("ОБЩИЙ ГАРАЖ", button)) input.OpenMenu();
-                    GUILayout.Label("Один безумный багги. Три испытания.", text);
+                    // Isolated legacy/debug builds without FrontEnd keep their existing launch path.
                     if (vehicle.DriveMode != VehicleDrive.Configured)
                     {
-                        GUILayout.Label("ПРИВОД", small);
                         int selectedDrive = GUILayout.Toolbar((int)vehicle.DriveMode - 1, DriveNames);
                         if (selectedDrive >= 0) vehicle.DriveMode = (VehicleDrive)(selectedDrive + 1);
                     }
-                    GUILayout.Space(12);
-                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Free), button)) input.Begin(ChallengeMode.Free);
-                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Race), button)) input.Begin(ChallengeMode.Race);
-                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Shooting), button)) input.Begin(ChallengeMode.Shooting);
-                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Combat), button)) input.Begin(ChallengeMode.Combat);
-                    GUILayout.Space(14);
-                    GUILayout.Label("Гонка — проезжайте зелёные ворота по порядку. Восстановление добавляет 3 с.\nСтрелковый полигон — 60 с на красные цели. Движущиеся цели дают вдвое больше очков.\nБоевая трасса — каждая оставшаяся цель добавляет 8 с, а каждый промах — 0,25 с.", small);
-                    GUILayout.Space(14);
-                    GUILayout.Label("WASD — езда  •  Пробел — занос\nМышь — прицел  •  ЛКМ — огонь  •  1/2/3 — оружие\nC — смена вида  •  R — восстановление  •  Esc — пауза", text);
+                    foreach (ChallengeMode choice in new[] { ChallengeMode.Free, ChallengeMode.Race, ChallengeMode.Shooting, ChallengeMode.Combat })
+                        if (GUILayout.Button(PlaygroundText.ModeName(choice), button)) input.Begin(choice);
                 }
+                input.MenuOverlayOpen = settings.IsOpen || confirmExit;
                 GUILayout.EndArea();
                 return;
             }
             GUI.Box(new Rect(20, 20, 360, 138), "");
             GUI.Label(new Rect(35, 28, 340, 35), PlaygroundText.ModeName(rules.Mode), text);
-            string progress = rules.Mode == ChallengeMode.Shooting
+            string progress = rules.Mode == ChallengeMode.Free ? "Исследуйте карту и опробуйте машину" : rules.Mode == ChallengeMode.Shooting
                 ? $"Осталось {PlaygroundText.Seconds(rules.Remaining, "0.0")}   •   {FormatResult(rules.Score)}"
                 : $"{PlaygroundText.Seconds(rules.Elapsed)}   •   Ворота {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}";
             GUI.Label(new Rect(35, 61, 340, 30), progress, text);

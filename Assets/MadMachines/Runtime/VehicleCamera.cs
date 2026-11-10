@@ -43,6 +43,7 @@ namespace MadMachines
 
         public void Look(Vector2 delta)
         {
+            delta = GameSettings.AdjustLook(delta);
             yaw += delta.x * 0.12f;
             pitch = Mathf.Clamp(pitch - delta.y * 0.12f, -42f, 30f);
         }

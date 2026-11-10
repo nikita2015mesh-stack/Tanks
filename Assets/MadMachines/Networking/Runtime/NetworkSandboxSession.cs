@@ -53,6 +53,7 @@ namespace MadMachines.Networking
         public string Status { get; private set; } = "Отключено";
         public bool IsServerProcess { get; private set; }
         public string LocationName => locationName;
+        public bool ConnectionStopped => !ready || (!wantsConnection && (Manager == null || !Manager.IsConnectedClient));
         public bool CanConnect => !leaving && ready && !IsServerProcess && Manager != null && !Manager.IsListening && !Manager.ShutdownInProgress;
         public bool CanDisconnect => ready && !IsServerProcess && Manager != null && (wantsConnection || Manager.IsListening);
 
@@ -394,7 +395,9 @@ namespace MadMachines.Networking
             if (Manager != null) Manager.Shutdown();
         }
 
-        public void LeaveToGarage()
+        public void LeaveToGarage() => LeaveToMain();
+
+        public void LeaveToMain()
         {
             if (leaving || IsServerProcess) return;
             leaving = true;
@@ -403,10 +406,10 @@ namespace MadMachines.Networking
 
         private System.Collections.IEnumerator Leave()
         {
-            StopConnecting("Выход в гараж…");
+            StopConnecting("Возвращение на главный…");
             if (Manager != null && Manager.IsListening) Manager.Shutdown();
             while (Manager != null && (Manager.IsListening || Manager.ShutdownInProgress)) yield return null;
-            GameFlow.ReturnToGarage();
+            GameFlow.ReturnToMain();
         }
 
         private ServerSessionInfo DescribeSession()
@@ -415,6 +418,8 @@ namespace MadMachines.Networking
             return new ServerSessionInfo
             {
                 protocol = NetworkSessionProtocol.Version, mapId = mapId, location = locationName,
+                vehicleId = vehiclePrefab.GetComponent<NetworkVehicle>().DefinitionId,
+                vehicleName = vehiclePrefab.GetComponent<NetworkVehicle>().DisplayName,
                 mode = "free", phase = "running", players = slots.Count, capacity = 2,
                 joinable = ready && !Manager.ShutdownInProgress && slots.Count < 2
             };

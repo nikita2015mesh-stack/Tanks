@@ -13,6 +13,8 @@ namespace MadMachines.Networking
         public int protocol;
         public string mapId;
         public string location;
+        public string vehicleId;
+        public string vehicleName;
         public string mode;
         public string phase;
         public int players;
@@ -117,6 +119,13 @@ namespace MadMachines.Networking
                 byte[] response = Encoding.UTF8.GetBytes(JsonUtility.ToJson(info));
                 server.Send(response, response.Length, sender);
             }
+        }
+
+        public void Cancel()
+        {
+            Dispose();
+            Result = null;
+            Status = null;
         }
 
         public void Dispose()

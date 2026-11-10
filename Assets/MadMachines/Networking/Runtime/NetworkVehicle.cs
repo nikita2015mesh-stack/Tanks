@@ -42,6 +42,7 @@ namespace MadMachines.Networking
         public int Hits => hits.Value;
         public int Shots => shots.Value;
         public float Speed => speed.Value;
+        public string DefinitionId => definition.Id;
         public string DisplayName => definition.DisplayName;
         public Vector3 MuzzlePosition => weapons.MuzzlePosition;
         public Rigidbody Body => vehicle.Body;

@@ -21,7 +21,8 @@ namespace MadMachines
             ChallengeManager rules = GetComponent<ChallengeManager>();
             LocalPlayerInput input = GetComponent<LocalPlayerInput>();
             PlaygroundHud hud = GetComponent<PlaygroundHud>();
-            VehiclePhysics prefab = vehicle != null ? vehicle.Prefab : null;
+            VehicleDefinition selected = GameFlow.LocalLaunchPending ? GameFlow.CurrentVehicle : vehicle;
+            VehiclePhysics prefab = selected != null ? selected.Prefab : null;
             if (startPoint == null || view == null || prefab == null ||
                 !prefab.gameObject.activeSelf || !prefab.TryGetComponent<WeaponSystem>(out _))
             {
