@@ -21,7 +21,7 @@ namespace MadMachines.Networking
         public int capacity;
         public bool joinable;
 
-        public string Scene => mapId == "quarry.v2" ? "QuarryOnline" : mapId == "sandbox" ? "NetworkSandbox" : null;
+        public string Scene => mapId == "sandbox" ? "NetworkSandbox" : null;
         public bool Supported => protocol == NetworkSessionProtocol.Version && Scene != null && mode == "free" && phase == "running";
         public string Summary => $"{location}\nСвободная езда · сессия идёт\nИгроков: {players}/{capacity}";
     }

@@ -126,7 +126,7 @@ namespace MadMachines.Networking.Editor
             byte[] invalidDrive = (byte[])rearDrive.Clone();
             invalidDrive[12] = 255;
             Require(NetworkSessionProtocol.CheckCompatibility(invalidDrive, handshake, out _) != null, "Отказ неизвестного привода");
-            Require(NetworkSessionProtocol.CheckCompatibility(NetworkSessionProtocol.CreatePayload(1, 2, "quarry.v2"), handshake, out _) != null,
+            Require(NetworkSessionProtocol.CheckCompatibility(NetworkSessionProtocol.CreatePayload(1, 2, "other-map"), handshake, out _) != null,
                 "Отказ другой карты после запроса сессии");
             Require(NetworkSessionProtocol.CheckCompatibility(new byte[] { 77, 77, (byte)NetworkSessionProtocol.Version, 0 }, handshake, out _) != null,
                 "Отказ неполного пакета конфигурации");

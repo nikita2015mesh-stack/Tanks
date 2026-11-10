@@ -14,8 +14,6 @@ namespace MadMachines
         {
             "Assets/MadMachines/Scenes/FrontEnd.unity",
             "Assets/MadMachines/Scenes/Playground.unity",
-            "Assets/MadMachines/Scenes/Quarry.unity",
-            "Assets/MadMachines/Scenes/QuarryOnline.unity",
             "Assets/MadMachines/Networking/Scenes/NetworkSandbox.unity"
         };
         private static GameFlow instance;

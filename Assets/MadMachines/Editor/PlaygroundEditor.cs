@@ -11,7 +11,6 @@ namespace MadMachines.Editor
     public static class PlaygroundEditor
     {
         private const string ScenePath = "Assets/MadMachines/Scenes/Playground.unity";
-        private const string QuarryScenePath = "Assets/MadMachines/Scenes/Quarry.unity";
         private const string VehiclePath = "Assets/MadMachines/Vehicles/T100.asset";
         private const string PendingKey = "MadMachines.Verify";
         private static double deadline;
@@ -115,20 +114,6 @@ namespace MadMachines.Editor
             if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             Generate();
             BuildWindowsPlayer(GameFlow.PlayerScenes[0], "Builds/MadMachines/MadMachines.exe");
-        }
-
-        [MenuItem("Tools/Mad Machines/Quarry/Open offline")]
-        public static void OpenQuarry()
-        {
-            if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                EditorSceneManager.OpenScene(QuarryScenePath);
-        }
-
-        [MenuItem("Tools/Mad Machines/Quarry/Build Windows offline player")]
-        public static void BuildQuarryWindows()
-        {
-            if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
-            BuildWindowsPlayer(QuarryScenePath, "Builds/MadMachines/Quarry/MadMachines.exe");
         }
 
         private static void BuildWindowsPlayer(string scenePath, string output)

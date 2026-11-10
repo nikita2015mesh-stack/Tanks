@@ -9,7 +9,6 @@ namespace MadMachines
         private enum Page { Main, Garage, Statistics }
         private enum Dialog { None, GarageChanges, Quit }
         private static readonly string[] DriveNames = { "Полный", "Передний", "Задний" };
-        private static readonly string[] MapNames = { "Карьер", "Полигон" };
         [SerializeField] private VehicleDefinition vehicle;
         [SerializeField] private VehicleDefinition[] vehicles;
         private readonly ServerSessionQuery query = new ServerSessionQuery();
@@ -20,9 +19,7 @@ namespace MadMachines
         private VehicleDrive draftDrive;
         private bool online;
         private bool rotate = true;
-        private int map;
         private ChallengeMode mode;
-        private int statisticsMap;
         private ChallengeMode statisticsMode = ChallengeMode.Race;
         private string address;
         private string port;
@@ -40,7 +37,6 @@ namespace MadMachines
         private void Awake()
         {
             GameFlow.RegisterVehicles(vehicle, vehicles);
-            map = Mathf.Clamp(PlayerPrefs.GetInt("MadMachines.Garage.Map.v1", 0), 0, 1);
             mode = (ChallengeMode)Mathf.Clamp(PlayerPrefs.GetInt("MadMachines.Garage.Mode.v1", 0), 0, 3);
             online = PlayerPrefs.GetInt("MadMachines.Main.Online.v1", 0) != 0;
             address = PlayerPrefs.GetString("MadMachines.Server.Address.v1", "127.0.0.1");
@@ -182,7 +178,7 @@ namespace MadMachines
         {
             bool interactable = GUI.enabled;
             GUILayout.Label("КАРТА", label);
-            map = GUILayout.Toolbar(map, MapNames, button);
+            GUILayout.Label("Полигон", label);
             GUILayout.Label("РЕЖИМ", label);
             foreach (ChallengeMode choice in new[] { ChallengeMode.Free, ChallengeMode.Race, ChallengeMode.Shooting, ChallengeMode.Combat })
                 if (GUILayout.Toggle(mode == choice, PlaygroundText.ModeName(choice), button)) mode = choice;
@@ -198,7 +194,7 @@ namespace MadMachines
             if (GUILayout.Button("ИГРАТЬ", button))
             {
                 SaveLaunch();
-                GameFlow.StartLocal(map == 0 ? "Quarry" : "Playground", mode);
+                GameFlow.StartLocal("Playground", mode);
             }
             GUI.enabled = interactable;
         }
@@ -244,7 +240,6 @@ namespace MadMachines
         private void SaveLaunch()
         {
             PlayerPrefs.SetInt("MadMachines.Main.Online.v1", online ? 1 : 0);
-            PlayerPrefs.SetInt("MadMachines.Garage.Map.v1", map);
             PlayerPrefs.SetInt("MadMachines.Garage.Mode.v1", (int)mode);
             PlayerPrefs.SetString("MadMachines.Server.Address.v1", address);
             PlayerPrefs.SetString("MadMachines.Server.Port.v1", port);
@@ -303,10 +298,10 @@ namespace MadMachines
         {
             GUILayout.Label("СТАТИСТИКА ИГРОКА", heading);
             GUILayout.Label("Сохранённые личные результаты", label);
-            statisticsMap = GUILayout.Toolbar(statisticsMap, MapNames, button);
+            GUILayout.Label("Полигон", label);
             foreach (ChallengeMode choice in new[] { ChallengeMode.Race, ChallengeMode.Shooting, ChallengeMode.Combat })
                 if (GUILayout.Toggle(statisticsMode == choice, PlaygroundText.ModeName(choice), button)) statisticsMode = choice;
-            var records = LocalRecords.Read(statisticsMode, statisticsMap == 0 ? "quarry" : null);
+            var records = LocalRecords.Read(statisticsMode);
             if (records.Count == 0) GUILayout.Label("Результатов пока нет", label);
             for (int i = 0; i < records.Count; i++)
                 GUILayout.Label($"{i + 1}. " + (statisticsMode == ChallengeMode.Shooting ? $"{records[i]:0} очк." : PlaygroundText.Seconds(records[i])), label);

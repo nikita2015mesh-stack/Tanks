@@ -18,7 +18,6 @@ namespace MadMachines.Networking.Editor
         private const string VehicleDefinitionPath = "Assets/MadMachines/Vehicles/T100.asset";
         private const string CannonDefinitionPath = "Assets/MadMachines/Generated/Ballisticcannon.asset";
         public const string ScenePath = Root + "/Scenes/NetworkSandbox.unity";
-        private const string QuarryScenePath = "Assets/MadMachines/Scenes/QuarryOnline.unity";
 
         [MenuItem("Tools/Mad Machines/Networking/Create or open sandbox")]
         public static void OpenSandbox()
@@ -235,25 +234,6 @@ namespace MadMachines.Networking.Editor
         public static void BuildLinuxServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
             NetworkBuildOutput.LinuxServer, NetworkBuildOutput.LinuxServerExecutable);
 
-        [MenuItem("Tools/Mad Machines/Quarry/Open online")]
-        public static void OpenQuarryOnline()
-        {
-            if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                EditorSceneManager.OpenScene(QuarryScenePath);
-        }
-
-        [MenuItem("Tools/Mad Machines/Quarry/Build Development Server")]
-        public static void BuildQuarryServer() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Server,
-            NetworkBuildOutput.WindowsServer, NetworkBuildOutput.WindowsServerExecutable, QuarryScenePath);
-
-        [MenuItem("Tools/Mad Machines/Quarry/Build Windows client")]
-        public static void BuildQuarryClient() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Player,
-            NetworkBuildOutput.WindowsClient, NetworkBuildOutput.WindowsClientExecutable, QuarryScenePath);
-
-        [MenuItem("Tools/Mad Machines/Quarry/Build Linux dedicated server")]
-        public static void BuildQuarryLinuxServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
-            NetworkBuildOutput.LinuxServer, NetworkBuildOutput.LinuxServerExecutable, QuarryScenePath);
-
         private static bool Build(BuildTarget target, StandaloneBuildSubtarget subtarget, string outputTarget, string executable,
             string scenePath = ScenePath)
         {
@@ -285,9 +265,6 @@ namespace MadMachines.Networking.Editor
 
         [MenuItem("Tools/Mad Machines/Networking/Validate sandbox assets")]
         public static void ValidateSandbox() => ValidateScene(ScenePath);
-
-        [MenuItem("Tools/Mad Machines/Quarry/Validate online assets")]
-        public static void ValidateQuarryOnline() => ValidateScene(QuarryScenePath);
 
         private static void ValidateScene(string path)
         {
