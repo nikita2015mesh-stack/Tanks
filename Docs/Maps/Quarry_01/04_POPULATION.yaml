@@ -1,0 +1,117 @@
+# Quarry_01 v0.1 — декларативное наполнение карты.
+# Префабы здесь — семантические имена, а не реальные пути Assets в Unity.
+# Отсутствие prefab не должно ломать генератор: использовать placeholder meshes.
+# Положения POI определены в quarry_01.json (полярные координаты → X/Z).
+schema_version: '0.1'
+map_id: Quarry_01
+seed: 17031
+
+# Этапы для реализации Codex: сначала gameplay, потом visual, затем atmosphere.
+stages:
+  gameplay:
+    spawn_points:
+      source: quarry_01.json
+      ids: [spawn_a, spawn_b]
+      clear_radius_m: 35
+      require_safe_start: true
+      reserve_for_lan_multiplayer: true
+    cover_clusters:
+      - id: floor_cover
+        anchor_poi: floor_cover
+        prefab_tag: rock_cover_large
+        count: 7
+        scatter_radius_m: 65
+        destructible: false
+      - id: west_boulders
+        anchor_poi: west_boulders
+        prefab_tag: boulder_large
+        count: 9
+        scatter_radius_m: 75
+        destructible: false
+      - id: south_mid_cover
+        zone_description: south side of middle and upper benches
+        prefab_tag: rubble_berm
+        count: 8
+        placement: random_eligible_terrace
+        destructible: false
+      - id: north_mid_cover
+        zone_description: north side of middle benches
+        prefab_tag: rock_cover_medium
+        count: 8
+        placement: random_eligible_terrace
+        destructible: false
+    forbidden_placement:
+      - terrain outside map bounds
+      - road drive width + shoulder + 5m safety margin
+      - vehicle spawn clear zones
+      - non-grounded object positions
+    physics:
+      all_cover_needs_colliders: true
+      no_mesh_colliders_required_for_small_debris: true
+      validate_vehicle_passage: true
+
+  visual:
+    industrial_landmarks:
+      - id: crusher
+        anchor_poi: crusher
+        prefab_tag: quarry_crusher
+        placeholder: gray primitive structure on a rectangular pad
+        static: true
+      - id: conveyor
+        anchor_poi: conveyor
+        prefab_tag: broken_conveyor
+        placeholder: elevated beam and supports, outside road envelope
+        static: true
+      - id: excavator
+        anchor_poi: excavator
+        prefab_tag: mining_excavator
+        placeholder: excavator silhouette from primitive objects
+        static: true
+    rocks:
+      large_boulders: 95
+      medium_boulders: 280
+      small_talus_groups: 420
+      distribution: clustered_not_uniform
+      avoid_drivable_road_beds: true
+      avoid_obstructing_all_shot_lanes: true
+    materials:
+      - id: upper_sandstone
+        application: high benches and quarry rim
+      - id: gray_rock
+        application: exposed walls of middle benches
+      - id: dark_rock
+        application: lower benches and pit bottom
+      - id: gravel_track
+        application: road surface via derived road mask
+      - id: spoil_heaps
+        application: local piles and cover formations
+
+  atmosphere:
+    mud_zones:
+      - id: lower_mud
+        anchor_poi: lower_mud
+        radius_m: 35
+        visual: damp dark gravel and puddles
+        traction_multiplier: 0.75
+        enable_physics_penalty_in_v0_2: true
+    foliage:
+      only_near_rim: true
+      low_shrubs: 160
+      small_trees: 55
+    effects:
+      dust_when_moving: deferred
+      wheel_track_decals: deferred
+      dynamic_puddles: deferred
+      fog_dust_haze: deferred
+
+performance:
+  instancing_for_repeated_rocks: true
+  lod_for_distant_industry: true
+  do_not_spawn_thousands_of_gameobjects_per_frame: true
+  deterministic_seed: 17031
+  allow_low_quality_preview_mode: true
+
+network:
+  baseline_static_objects_need_no_per_frame_sync: true
+  persistent_damage_and_craters: future_server_authoritative_events
+  avoid_networkobject_on_every_rock: true

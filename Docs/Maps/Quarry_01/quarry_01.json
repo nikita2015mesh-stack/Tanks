@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "map_id": "Quarry_01",
+  "display_name": "Карьер — Большая чаша",
+  "seed": 17031,
+  "world": {
+    "size_x_m": 1500,
+    "size_z_m": 1500,
+    "origin": "south_west_corner",
+    "center_x_m": 750,
+    "center_z_m": 750,
+    "height_min_m": 0,
+    "height_max_m": 210,
+    "terrain_heightmap_resolution": 1025
+  },
+  "quarry": {
+    "rotation_deg": 14,
+    "ellipse_scale_x": 1.09,
+    "ellipse_scale_z": 0.91,
+    "step_boundaries_radius_m": [170, 220, 270, 320, 370, 420, 470, 520],
+    "step_height_m": 22.5,
+    "step_transition_width_m": 14,
+    "bottom_flat_radius_m": 135,
+    "wall_variation_m": 10,
+    "outside_rolling_m": 2
+  },
+  "roads": {
+    "main_spiral": {"radius_start_m": 145, "radius_end_m": 560, "start_angle_deg": -130, "turns": 2.15, "drive_width_m": 24, "shoulder_width_m": 11, "target_max_grade_pct": 12},
+    "ring_roads": [
+      {"id": "lower_ring", "radius_m": 242, "height_m": 45, "drive_width_m": 19, "shoulder_width_m": 9},
+      {"id": "middle_ring", "radius_m": 342, "height_m": 90, "drive_width_m": 22, "shoulder_width_m": 9},
+      {"id": "upper_ring", "radius_m": 442, "height_m": 135, "drive_width_m": 23, "shoulder_width_m": 10},
+      {"id": "rim_ring", "radius_m": 542, "height_m": 180, "drive_width_m": 28, "shoulder_width_m": 12}
+    ]
+  },
+  "points_of_interest": [
+    {"id": "spawn_a", "label": "Старт A", "type": "spawn", "road_id": "rim_ring", "angle_deg": 28},
+    {"id": "spawn_b", "label": "Старт B", "type": "spawn", "road_id": "rim_ring", "angle_deg": 207},
+    {"id": "north_overlook", "label": "Обзор С", "type": "fire_position", "radius_m": 572, "angle_deg": 85},
+    {"id": "south_overlook", "label": "Обзор Ю", "type": "fire_position", "radius_m": 565, "angle_deg": -85},
+    {"id": "crusher", "label": "Дробилка", "type": "industrial", "radius_m": 587, "angle_deg": 5},
+    {"id": "conveyor", "label": "Конвейер", "type": "industrial", "radius_m": 343, "angle_deg": 185},
+    {"id": "excavator", "label": "Экскаватор", "type": "industrial", "radius_m": 83, "angle_deg": 155},
+    {"id": "floor_cover", "label": "Укрытия на дне", "type": "cover_zone", "radius_m": 86, "angle_deg": -35},
+    {"id": "west_boulders", "label": "Валуны", "type": "cover_zone", "radius_m": 370, "angle_deg": 145},
+    {"id": "lower_mud", "label": "Грязь", "type": "traction_zone", "radius_m": 244, "angle_deg": -60}
+  ],
+  "generation_rules": {
+    "terrain_strategy": "Heightfield Terrain for first playable version; meshes only for overhangs or very steep local features",
+    "paths_are_authoritative": true,
+    "ring_roads_are_closed": true,
+    "no_random_rocks_on_roads": true,
+    "all_randomness_seeded": true,
+    "multiplayer": "Static baseline is deterministic on all peers; later terrain changes authoritative on server"
+  }
+}

@@ -11,6 +11,7 @@ namespace MadMachines
         [SerializeField] private WeaponSystem weapons;
         [SerializeField] private ChallengeManager rules;
         [SerializeField] private string locationName;
+        [SerializeField] private bool freeDriveOnly;
         private GUIStyle title;
         private GUIStyle text;
         private GUIStyle button;
@@ -76,7 +77,7 @@ namespace MadMachines
                 }
                 else
                 {
-                    GUILayout.Label("Один безумный багги. Три испытания.", text);
+                    GUILayout.Label(freeDriveOnly ? "Пробный спуск на T100" : "Один безумный багги. Три испытания.", text);
                     if (vehicle.DriveMode != VehicleDrive.Configured)
                     {
                         GUILayout.Label("ПРИВОД", small);
@@ -85,11 +86,19 @@ namespace MadMachines
                     }
                     GUILayout.Space(12);
                     if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Free), button)) input.Begin(ChallengeMode.Free);
-                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Race), button)) input.Begin(ChallengeMode.Race);
-                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Shooting), button)) input.Begin(ChallengeMode.Shooting);
-                    if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Combat), button)) input.Begin(ChallengeMode.Combat);
-                    GUILayout.Space(14);
-                    GUILayout.Label("Гонка — проезжайте зелёные ворота по порядку. Восстановление добавляет 3 с.\nСтрелковый полигон — 60 с на красные цели. Движущиеся цели дают вдвое больше очков.\nБоевая трасса — каждая оставшаяся цель добавляет 8 с, а каждый промах — 0,25 с.", small);
+                    if (freeDriveOnly)
+                    {
+                        GUILayout.Space(14);
+                        GUILayout.Label("Жёлтая линия ведёт по серпантину M0 на дно. Бирюзовые линии обозначают кольца R1–R4 снизу вверх.", small);
+                    }
+                    else
+                    {
+                        if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Race), button)) input.Begin(ChallengeMode.Race);
+                        if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Shooting), button)) input.Begin(ChallengeMode.Shooting);
+                        if (GUILayout.Button(PlaygroundText.ModeName(ChallengeMode.Combat), button)) input.Begin(ChallengeMode.Combat);
+                        GUILayout.Space(14);
+                        GUILayout.Label("Гонка — проезжайте зелёные ворота по порядку. Восстановление добавляет 3 с.\nСтрелковый полигон — 60 с на красные цели. Движущиеся цели дают вдвое больше очков.\nБоевая трасса — каждая оставшаяся цель добавляет 8 с, а каждый промах — 0,25 с.", small);
+                    }
                     GUILayout.Space(14);
                     GUILayout.Label("WASD — езда  •  Пробел — занос\nМышь — прицел  •  ЛКМ — огонь  •  1/2/3 — оружие\nC — смена вида  •  R — восстановление  •  Esc — пауза", text);
                 }
@@ -98,9 +107,13 @@ namespace MadMachines
             }
             GUI.Box(new Rect(20, 20, 360, 138), "");
             GUI.Label(new Rect(35, 28, 340, 35), PlaygroundText.ModeName(rules.Mode), text);
-            string progress = rules.Mode == ChallengeMode.Shooting
-                ? $"Осталось {PlaygroundText.Seconds(rules.Remaining, "0.0")}   •   {FormatResult(rules.Score)}"
-                : $"{PlaygroundText.Seconds(rules.Elapsed)}   •   Ворота {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}";
+            string progress;
+            if (freeDriveOnly)
+                progress = "Жёлтый M0  •  Бирюзовые R1–R4";
+            else if (rules.Mode == ChallengeMode.Shooting)
+                progress = $"Осталось {PlaygroundText.Seconds(rules.Remaining, "0.0")}   •   {FormatResult(rules.Score)}";
+            else
+                progress = $"{PlaygroundText.Seconds(rules.Elapsed)}   •   Ворота {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}";
             GUI.Label(new Rect(35, 61, 340, 30), progress, text);
             GUI.Label(new Rect(35, 94, 340, 50), $"{vehicle.Speed:0} км/ч   •   {weapons.Current.Label}", text);
             GUI.Box(new Rect(20, height - 78, 355, 58), "");
