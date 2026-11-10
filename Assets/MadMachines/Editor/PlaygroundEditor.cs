@@ -114,7 +114,7 @@ namespace MadMachines.Editor
         {
             if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             Generate();
-            BuildWindowsPlayer(ScenePath, "Builds/MadMachines/MadMachines.exe");
+            BuildWindowsPlayer(GameFlow.PlayerScenes[0], "Builds/MadMachines/MadMachines.exe");
         }
 
         [MenuItem("Tools/Mad Machines/Quarry/Open offline")]
@@ -136,13 +136,21 @@ namespace MadMachines.Editor
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             UnityEditor.Build.Reporting.BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
-                scenes = new[] { scenePath },
+                scenes = scenePath == GameFlow.PlayerScenes[0] ? GameFlow.PlayerScenes : PlayerScenesStartingWith(scenePath),
                 locationPathName = output,
                 target = BuildTarget.StandaloneWindows64,
                 options = BuildOptions.None
             });
             if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
                 throw new System.Exception("MAD MACHINES player build failed: " + report.summary.result);
+        }
+
+        public static string[] PlayerScenesStartingWith(string scenePath)
+        {
+            var scenes = new System.Collections.Generic.List<string> { scenePath };
+            foreach (string path in GameFlow.PlayerScenes)
+                if (path != scenePath) scenes.Add(path);
+            return scenes.ToArray();
         }
 
         private static void Monitor()

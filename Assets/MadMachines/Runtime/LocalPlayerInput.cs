@@ -18,10 +18,18 @@ namespace MadMachines
             vehicle = car; weapons = gun; view = camera; rules = session;
         }
 
-        private void Start()
+        private System.Collections.IEnumerator Start()
         {
             weapons.Fired += view.Shake;
             SetCursor();
+            // Let all scene Start methods finish before beginning a routed session.
+            yield return null;
+            if (GameFlow.LocalLaunchPending)
+            {
+                ChallengeMode mode = GameFlow.LocalMode;
+                GameFlow.ConsumeLocalLaunch();
+                Begin(mode);
+            }
         }
 
         public void Begin(ChallengeMode mode)
@@ -41,6 +49,11 @@ namespace MadMachines
 
         public void OpenMenu()
         {
+            if (UnityEngine.Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene))
+            {
+                GameFlow.ReturnToGarage();
+                return;
+            }
             Menu = true;
             Paused = false;
             Time.timeScale = 1f;
@@ -58,7 +71,7 @@ namespace MadMachines
         {
             Keyboard keyboard = Keyboard.current;
             Mouse mouse = Mouse.current;
-            if (keyboard == null || mouse == null) return;
+            if (keyboard == null || mouse == null || GameFlow.Loading) return;
             if (keyboard.escapeKey.wasPressedThisFrame && !Menu && rules.Phase != SessionPhase.Results)
             {
                 Paused = !Paused;

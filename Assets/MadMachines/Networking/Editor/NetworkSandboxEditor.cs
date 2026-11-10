@@ -269,7 +269,8 @@ namespace MadMachines.Networking.Editor
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
-                scenes = new[] { scenePath },
+                scenes = subtarget == StandaloneBuildSubtarget.Server ? new[] { scenePath } :
+                    MadMachines.Editor.PlaygroundEditor.PlayerScenesStartingWith(scenePath),
                 locationPathName = output,
                 target = target,
                 subtarget = (int)subtarget,

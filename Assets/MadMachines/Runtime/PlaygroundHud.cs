@@ -33,6 +33,7 @@ namespace MadMachines
 
         private void OnGUI()
         {
+            if (GameFlow.Loading) return;
             if (title == null)
             {
                 title = new GUIStyle(GUI.skin.label) { fontSize = 34, fontStyle = FontStyle.Bold, wordWrap = true };
@@ -76,6 +77,7 @@ namespace MadMachines
                 }
                 else
                 {
+                    if (Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene) && GUILayout.Button("ОБЩИЙ ГАРАЖ", button)) input.OpenMenu();
                     GUILayout.Label("Один безумный багги. Три испытания.", text);
                     if (vehicle.DriveMode != VehicleDrive.Configured)
                     {

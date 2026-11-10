@@ -187,11 +187,12 @@ namespace MadMachines.Networking
 
         private void OnGUI()
         {
-            if (session == null) return;
-            GUILayout.BeginArea(new Rect(12f, 12f, 430f, 330f), GUI.skin.box);
+            if (session == null || GameFlow.Loading) return;
+            GUILayout.BeginArea(new Rect(12f, 12f, 430f, 430f), GUI.skin.box);
             GUILayout.Label($"Безумные машины — {session.LocationName}");
             statusStyle ??= new GUIStyle(GUI.skin.label) { wordWrap = true };
             GUILayout.Label(session.Status, statusStyle);
+            if (session.SessionInfo != null) GUILayout.Label(session.SessionInfo.Summary, statusStyle);
             string mode = session.Mode == NetworkConnectionMode.Offline ? "Автономно" :
                 session.Mode == NetworkConnectionMode.DevelopmentOnline ? "Локальный сервер" : "Удалённый сервер";
             GUILayout.Label($"{mode} · {session.Address}:{session.Port} · протокол {NetworkSessionProtocol.Version}");
@@ -213,6 +214,7 @@ namespace MadMachines.Networking
             GUI.enabled = session.CanDisconnect;
             if (GUILayout.Button("Отключиться")) session.Disconnect();
             GUI.enabled = true;
+            if (Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene) && GUILayout.Button("В ГАРАЖ")) session.LeaveToGarage();
             GUILayout.Label("WASD — движение · Пробел — ручник\nМышь — наведение · ЛКМ — пушка\nEsc — освободить курсор; сервер продолжает игру.");
             GUILayout.EndArea();
             if (localVehicle != null) GUI.Label(new Rect(Screen.width / 2f - 5f, Screen.height / 2f - 10f, 20f, 20f), "+");

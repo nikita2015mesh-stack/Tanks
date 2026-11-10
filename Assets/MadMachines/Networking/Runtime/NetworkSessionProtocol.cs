@@ -8,11 +8,11 @@ namespace MadMachines.Networking
     {
         // Keep the NGO handshake stable across application protocol updates so approval can report a reason.
         public const ushort NgoHandshakeVersion = 3;
-        public const ushort Version = 5;
+        public const ushort Version = 6;
         public const string RejectionPrefix = "[MM INCOMPATIBLE] ";
-        private const int MapIdOffset = 12;
+        private const int MapIdOffset = 13;
 
-        public static byte[] CreatePayload(uint vehicleHash, uint projectileHash, string mapId = "sandbox")
+        public static byte[] CreatePayload(uint vehicleHash, uint projectileHash, string mapId = "sandbox", VehicleDrive drive = VehicleDrive.Configured)
         {
             byte[] map = Encoding.UTF8.GetBytes(mapId);
             byte[] payload = new byte[MapIdOffset + map.Length];
@@ -21,9 +21,12 @@ namespace MadMachines.Networking
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2), Version);
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4), vehicleHash);
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(8), projectileHash);
+            payload[12] = (byte)drive;
             map.CopyTo(payload, MapIdOffset);
             return payload;
         }
+
+        public static VehicleDrive ReadDrive(byte[] payload) => (VehicleDrive)payload[12];
 
         public static string CheckCompatibility(byte[] client, byte[] server, out string diagnostic)
         {
@@ -42,6 +45,11 @@ namespace MadMachines.Networking
             {
                 diagnostic = "Network prefab IDs do not match. Build both players from the same project revision.";
                 return RejectionPrefix + "Не совпадают сетевые префабы. Соберите клиент и сервер из одной версии проекта.";
+            }
+            if (client[12] > (byte)VehicleDrive.Rear)
+            {
+                diagnostic = "Unsupported vehicle configuration.";
+                return RejectionPrefix + "Этот привод недоступен в сессии.";
             }
             if (!client.AsSpan(MapIdOffset).SequenceEqual(server.AsSpan(MapIdOffset)))
             {

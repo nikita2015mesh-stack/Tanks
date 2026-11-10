@@ -120,6 +120,16 @@ namespace MadMachines.Networking.Editor
             Require(NetworkSessionProtocol.CheckCompatibility(handshake, handshake, out _) == null, "Совместимый протокол");
             Require(NetworkSessionProtocol.CheckCompatibility(Array.Empty<byte>(), handshake, out _) != null, "Отсутствующий заголовок");
             Require(NetworkSessionProtocol.CheckCompatibility(NetworkSessionProtocol.CreatePayload(2, 1), handshake, out _) != null, "Разные prefab");
+            byte[] rearDrive = NetworkSessionProtocol.CreatePayload(1, 2, "sandbox", VehicleDrive.Rear);
+            Require(NetworkSessionProtocol.CheckCompatibility(rearDrive, handshake, out _) == null &&
+                NetworkSessionProtocol.ReadDrive(rearDrive) == VehicleDrive.Rear, "Личная конфигурация привода");
+            byte[] invalidDrive = (byte[])rearDrive.Clone();
+            invalidDrive[12] = 255;
+            Require(NetworkSessionProtocol.CheckCompatibility(invalidDrive, handshake, out _) != null, "Отказ неизвестного привода");
+            Require(NetworkSessionProtocol.CheckCompatibility(NetworkSessionProtocol.CreatePayload(1, 2, "quarry.v2"), handshake, out _) != null,
+                "Отказ другой карты после запроса сессии");
+            Require(NetworkSessionProtocol.CheckCompatibility(new byte[] { 77, 77, (byte)NetworkSessionProtocol.Version, 0 }, handshake, out _) != null,
+                "Отказ неполного пакета конфигурации");
             byte[] oldHandshake = (byte[])handshake.Clone();
             oldHandshake[2] ^= 1;
             Require(NetworkSessionProtocol.CheckCompatibility(oldHandshake, handshake, out _).StartsWith(NetworkSessionProtocol.RejectionPrefix, StringComparison.Ordinal),
