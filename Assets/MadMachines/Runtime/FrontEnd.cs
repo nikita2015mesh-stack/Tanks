@@ -8,6 +8,9 @@ namespace MadMachines
     {
         private enum Page { Main, Garage, Statistics }
         private enum Dialog { None, GarageChanges, Quit }
+        private static readonly string[] LocalMapScenes = { "Playground", GameFlow.TestAsphaltScene, GameFlow.ShootingRangeScene };
+        private static readonly string[] LocalMapNames = { "Полигон", GameFlow.TestAsphaltLocation, GameFlow.ShootingRangeLocation };
+        private const string LocalMapKey = "MadMachines.Main.LocalMap.v1";
         private static readonly string[] DriveNames = { "Полный", "Передний", "Задний" };
         [SerializeField] private VehicleDefinition vehicle;
         [SerializeField] private VehicleDefinition[] vehicles;
@@ -18,7 +21,7 @@ namespace MadMachines
         private VehicleDefinition draftVehicle;
         private VehicleDrive draftDrive;
         private bool online;
-        private bool testAsphalt;
+        private int localMap;
         private bool rotate = true;
         private ChallengeMode mode;
         private ChallengeMode statisticsMode = ChallengeMode.Race;
@@ -40,7 +43,8 @@ namespace MadMachines
             GameFlow.RegisterVehicles(vehicle, vehicles);
             mode = (ChallengeMode)Mathf.Clamp(PlayerPrefs.GetInt("MadMachines.Garage.Mode.v1", 0), 0, 3);
             online = PlayerPrefs.GetInt("MadMachines.Main.Online.v1", 0) != 0;
-            testAsphalt = PlayerPrefs.GetInt("MadMachines.Main.TestAsphalt.v1", 0) != 0;
+            string previousMap = PlayerPrefs.GetInt("MadMachines.Main.TestAsphalt.v1", 0) != 0 ? GameFlow.TestAsphaltScene : "Playground";
+            localMap = Mathf.Max(0, System.Array.IndexOf(LocalMapScenes, PlayerPrefs.GetString(LocalMapKey, previousMap)));
             address = PlayerPrefs.GetString("MadMachines.Server.Address.v1", "127.0.0.1");
             port = PlayerPrefs.GetString("MadMachines.Server.Port.v1", "7777");
             CreateStage();
@@ -180,16 +184,15 @@ namespace MadMachines
         {
             bool interactable = GUI.enabled;
             GUILayout.Label("КАРТА", label);
-            testAsphalt = GUILayout.Toolbar(testAsphalt ? 1 : 0,
-                new[] { "Полигон", GameFlow.TestAsphaltLocation }, button) == 1;
+            localMap = GUILayout.SelectionGrid(localMap, LocalMapNames, 1, button);
             GUILayout.Label("РЕЖИМ", label);
-            if (testAsphalt) GUILayout.Label(PlaygroundText.ModeName(ChallengeMode.Free), label);
+            if (localMap != 0) GUILayout.Label(PlaygroundText.ModeName(ChallengeMode.Free), label);
             else
             {
                 foreach (ChallengeMode choice in new[] { ChallengeMode.Free, ChallengeMode.Race, ChallengeMode.Shooting, ChallengeMode.Combat })
                     if (GUILayout.Toggle(mode == choice, PlaygroundText.ModeName(choice), button)) mode = choice;
             }
-            ChallengeMode launchMode = testAsphalt ? ChallengeMode.Free : mode;
+            ChallengeMode launchMode = localMap == 0 ? mode : ChallengeMode.Free;
             string rules = launchMode switch
             {
                 ChallengeMode.Race => "Пройдите ворота по порядку. Меньшее время лучше. Восстановление: +3 с.",
@@ -202,7 +205,7 @@ namespace MadMachines
             if (GUILayout.Button("ИГРАТЬ", button))
             {
                 SaveLaunch();
-                GameFlow.StartLocal(testAsphalt ? GameFlow.TestAsphaltScene : "Playground", launchMode);
+                GameFlow.StartLocal(LocalMapScenes[localMap], launchMode);
             }
             GUI.enabled = interactable;
         }
@@ -248,7 +251,8 @@ namespace MadMachines
         private void SaveLaunch()
         {
             PlayerPrefs.SetInt("MadMachines.Main.Online.v1", online ? 1 : 0);
-            PlayerPrefs.SetInt("MadMachines.Main.TestAsphalt.v1", testAsphalt ? 1 : 0);
+            PlayerPrefs.SetString(LocalMapKey, LocalMapScenes[localMap]);
+            PlayerPrefs.SetInt("MadMachines.Main.TestAsphalt.v1", localMap == 1 ? 1 : 0);
             PlayerPrefs.SetInt("MadMachines.Garage.Mode.v1", (int)mode);
             PlayerPrefs.SetString("MadMachines.Server.Address.v1", address);
             PlayerPrefs.SetString("MadMachines.Server.Port.v1", port);

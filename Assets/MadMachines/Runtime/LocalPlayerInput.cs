@@ -9,6 +9,7 @@ namespace MadMachines
         [SerializeField] private WeaponSystem weapons;
         [SerializeField] private VehicleCamera view;
         [SerializeField] private ChallengeManager rules;
+        [SerializeField] private bool startInFreeDrive;
         private bool waitForFireRelease = true;
         public bool MenuOverlayOpen { get; set; }
         public bool Paused { get; private set; }
@@ -31,6 +32,10 @@ namespace MadMachines
                 ChallengeMode mode = GameFlow.LocalMode;
                 GameFlow.ConsumeLocalLaunch();
                 Begin(mode);
+            }
+            else if (startInFreeDrive && !GameFlow.Loading)
+            {
+                Begin(ChallengeMode.Free);
             }
         }
 
