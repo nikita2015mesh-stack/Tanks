@@ -9,6 +9,9 @@ namespace MadMachines.Networking
     [Serializable]
     public sealed class ServerSessionInfo
     {
+        public const string FreeMode = "free";
+        public const string TeamSkirmishMode = "team_skirmish";
+
         public string token;
         public int protocol;
         public string mapId;
@@ -25,10 +28,14 @@ namespace MadMachines.Networking
         {
             "sandbox" => "NetworkSandbox",
             GameFlow.TestAsphaltMapId => GameFlow.TestAsphaltScene,
+            GameFlow.ThreeRoadsMapId => GameFlow.ThreeRoadsScene,
             _ => null
         };
-        public bool Supported => protocol == NetworkSessionProtocol.Version && Scene != null && mode == "free" && phase == "running";
-        public string Summary => $"{location}\nСвободная езда · сессия идёт\nИгроков: {players}/{capacity}";
+        public bool Supported => protocol == NetworkSessionProtocol.Version && Scene != null && phase == "running" &&
+            mode == (mapId == GameFlow.ThreeRoadsMapId ? TeamSkirmishMode : FreeMode);
+        public string Summary => $"{location}\n{ModeName(mode == TeamSkirmishMode)} · сессия идёт\nИгроков: {players}/{capacity}";
+
+        public static string ModeName(bool teamPlay) => teamPlay ? "Командная стычка" : "Свободная езда";
     }
 
     // A small read-only query endpoint at game UDP port + 1. Never allocates a player slot.

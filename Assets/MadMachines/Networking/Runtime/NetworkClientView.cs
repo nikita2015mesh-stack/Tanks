@@ -10,6 +10,7 @@ namespace MadMachines.Networking
         private const double SendInterval = 1.0 / 30.0;
         private NetworkSandboxSession session;
         private NetworkVehicle localVehicle;
+        private NetworkVehicle aimedVehicle;
         private Camera view;
         private string address;
         private string port;
@@ -39,7 +40,7 @@ namespace MadMachines.Networking
             view = cameraObject.AddComponent<Camera>();
             cameraObject.AddComponent<AudioListener>();
             view.nearClipPlane = 0.1f;
-            view.farClipPlane = 350f;
+            view.farClipPlane = session.ViewDistance;
             view.fieldOfView = 65f;
             view.backgroundColor = RenderSettings.fog ? RenderSettings.fogColor : new Color(0.12f, 0.17f, 0.23f);
             view.clearFlags = RenderSettings.fog && RenderSettings.skybox != null ? CameraClearFlags.Skybox : CameraClearFlags.SolidColor;
@@ -57,6 +58,7 @@ namespace MadMachines.Networking
             if (!ReferenceEquals(current, localVehicle))
             {
                 localVehicle = current;
+                aimedVehicle = null;
                 fireUntil = 0;
                 if (current != null)
                 {
@@ -175,13 +177,16 @@ namespace MadMachines.Networking
         {
             Vector3 direction = Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
             Vector3 target = view.transform.position + direction * 150f;
+            Rigidbody targetBody = null;
             float nearest = 150f;
             foreach (RaycastHit hit in Physics.RaycastAll(view.transform.position, direction, nearest, NetworkVehicle.HitLayers, QueryTriggerInteraction.Ignore))
             {
                 if (hit.rigidbody == localVehicle.Body || hit.distance >= nearest) continue;
                 target = hit.point;
                 nearest = hit.distance;
+                targetBody = hit.rigidbody;
             }
+            aimedVehicle = session.HasTeams && targetBody != null ? targetBody.GetComponent<NetworkVehicle>() : null;
             Vector3 aim = target - localVehicle.MuzzlePosition;
             return aim.sqrMagnitude > 0.001f ? aim.normalized : direction;
         }
@@ -222,7 +227,10 @@ namespace MadMachines.Networking
                 ulong rtt = session.Transport.GetCurrentRtt(NetworkManager.ServerClientId);
                 GUILayout.Label($"Игрок: {session.Manager.LocalClientId}    RTT: {(rtt == 0 ? "ожидание" : rtt + " мс")}");
                 if (localVehicle != null)
+                {
                     GUILayout.Label($"{localVehicle.DisplayName} · Машина {localVehicle.Slot + 1}    {localVehicle.Speed:0} км/ч\nВыстрелов: {localVehicle.Shots}    Попаданий по вам: {localVehicle.Hits}");
+                    if (session.HasTeams) GUILayout.Label(TeamName(localVehicle));
+                }
                 if (GUILayout.Button("Вернуться к управлению")) CaptureCursor();
             }
             GUI.enabled = session.CanConnect;
@@ -238,15 +246,16 @@ namespace MadMachines.Networking
             if (Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene) && GUILayout.Button("НА ГЛАВНЫЙ")) session.LeaveToMain();
             GUILayout.Label("WASD — движение · Пробел — ручник\nМышь — наведение · ЛКМ — пушка\nEsc — освободить курсор; сервер продолжает игру.");
             GUILayout.EndArea();
-            if (localVehicle != null) GUI.Label(new Rect(Screen.width / 2f - 5f, Screen.height / 2f - 10f, 20f, 20f), "+");
+            if (localVehicle != null) DrawCrosshair();
         }
 
         private void DrawGameMenu()
         {
             if (ReadyForPlay && Cursor.lockState == CursorLockMode.Locked)
             {
-                GUI.Box(new Rect(16, 16, 330, 75), $"{session.LocationName} · Свободная езда\n{localVehicle.Speed:0} км/ч · Пушка");
-                GUI.Label(new Rect(Screen.width / 2f - 5, Screen.height / 2f - 10, 20, 20), "+");
+                string team = session.HasTeams ? $"\n{TeamName(localVehicle)} · Попаданий по вам: {localVehicle.Hits}" : string.Empty;
+                GUI.Box(new Rect(16, 16, 330, 75), $"{session.LocationName} · {ServerSessionInfo.ModeName(session.HasTeams)}\n{localVehicle.Speed:0} км/ч · Пушка{team}");
+                DrawCrosshair();
                 return;
             }
             float scale = Mathf.Max(0.1f, Mathf.Min(Screen.width / 1280f, Screen.height / 720f));
@@ -267,6 +276,19 @@ namespace MadMachines.Networking
             GUILayout.EndArea();
             GUI.matrix = previous;
         }
+
+        private void DrawCrosshair()
+        {
+            float x = Screen.width / 2f;
+            float y = Screen.height / 2f;
+            GUI.Label(new Rect(x - 5f, y - 10f, 20f, 20f), "+");
+            if (Cursor.lockState != CursorLockMode.Locked || aimedVehicle == null || !aimedVehicle.IsSpawned) return;
+            bool sameTeam = NetworkSandboxSession.TeamForSlot(aimedVehicle.Slot) == NetworkSandboxSession.TeamForSlot(localVehicle.Slot);
+            GUI.Box(new Rect(x - 45f, y + 12f, 90f, 22f), sameTeam ? "Союзник" : "Противник");
+        }
+
+        private static string TeamName(NetworkVehicle vehicle) =>
+            NetworkSandboxSession.TeamForSlot(vehicle.Slot) == 0 ? "Синие" : "Оранжевые";
 
         private void OnApplicationFocus(bool focused)
         {

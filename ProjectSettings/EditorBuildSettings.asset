@@ -20,5 +20,8 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/MadMachines/Scenes/ShootingRange_01.unity
     guid: 62546369c03445059264399baf4c3cbf
+  - enabled: 1
+    path: Assets/MadMachines/Scenes/Map_01_ThreeRoads.unity
+    guid: 81ec756f8a0c5864ba72b116aa51b390
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

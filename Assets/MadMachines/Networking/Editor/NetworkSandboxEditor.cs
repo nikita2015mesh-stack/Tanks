@@ -242,6 +242,14 @@ namespace MadMachines.Networking.Editor
         public static void BuildLinuxTestAsphaltServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
             GameFlow.TestAsphaltScene + "-LinuxServer", NetworkBuildOutput.LinuxServerExecutable, GameFlow.TestAsphaltScenePath);
 
+        [MenuItem("Tools/Mad Machines/Networking/" + GameFlow.ThreeRoadsLocation + "/Собрать сервер Windows")]
+        public static void BuildWindowsThreeRoadsServer() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Server,
+            GameFlow.ThreeRoadsScene + "-WindowsServer", NetworkBuildOutput.WindowsServerExecutable, GameFlow.ThreeRoadsScenePath);
+
+        [MenuItem("Tools/Mad Machines/Networking/" + GameFlow.ThreeRoadsLocation + "/Собрать сервер Linux")]
+        public static void BuildLinuxThreeRoadsServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
+            GameFlow.ThreeRoadsScene + "-LinuxServer", NetworkBuildOutput.LinuxServerExecutable, GameFlow.ThreeRoadsScenePath);
+
         private static bool Build(BuildTarget target, StandaloneBuildSubtarget subtarget, string outputTarget, string executable,
             string scenePath = ScenePath)
         {
@@ -273,6 +281,9 @@ namespace MadMachines.Networking.Editor
 
         [MenuItem("Tools/Mad Machines/Networking/Validate sandbox assets")]
         public static void ValidateSandbox() => ValidateScene(ScenePath);
+
+        [MenuItem("Tools/Mad Machines/Networking/" + GameFlow.ThreeRoadsLocation + "/Проверить ссылки сцены")]
+        public static void ValidateThreeRoads() => ValidateScene(GameFlow.ThreeRoadsScenePath);
 
         private static void ValidateScene(string path)
         {

@@ -12,15 +12,19 @@ namespace MadMachines.Networking
     public sealed class NetworkSandboxSession : MonoBehaviour
     {
         private const double RetryDelay = 2;
-        private const string ServerFullReason = "На сервере уже два игрока.";
+        private const string LegacyServerFullReason = "На сервере уже два игрока.";
+        private const string TeamServerFullReason = "На сервере нет свободных мест.";
+        private const string SpawnBlockedReason = "Все доступные точки появления заняты машинами.";
         public const string ServerReadyMarker = "[MM NET] SERVER_READY";
 
         [SerializeField] private GameObject vehiclePrefab;
         [SerializeField] private GameObject projectilePrefab;
         [SerializeField] private Transform[] spawnPoints;
+        [SerializeField] private Transform[] opposingTeamSpawnPoints;
         [SerializeField] private bool serverInEditor;
         [SerializeField] private string mapId = "sandbox";
         [SerializeField] private string locationName = "Сетевой полигон";
+        [SerializeField, Min(350f)] private float viewDistance = 350f;
         private readonly Dictionary<ulong, int> slots = new Dictionary<ulong, int>();
         private readonly Dictionary<ulong, NetworkObject> players = new Dictionary<ulong, NetworkObject>();
         private readonly Dictionary<ulong, VehicleDrive> configurations = new Dictionary<ulong, VehicleDrive>();
@@ -53,6 +57,9 @@ namespace MadMachines.Networking
         public string Status { get; private set; } = "Отключено";
         public bool IsServerProcess { get; private set; }
         public string LocationName => locationName;
+        public bool HasTeams => opposingTeamSpawnPoints != null && opposingTeamSpawnPoints.Length > 0;
+        public float ViewDistance => viewDistance;
+        private int Capacity => HasTeams ? spawnPoints.Length + opposingTeamSpawnPoints.Length : spawnPoints.Length;
         public bool ConnectionStopped => !ready || (!wantsConnection && (Manager == null || !Manager.IsConnectedClient));
         public bool CanConnect => !leaving && ready && !IsServerProcess && Manager != null && !Manager.IsListening && !Manager.ShutdownInProgress;
         public bool CanDisconnect => ready && !IsServerProcess && Manager != null && (wantsConnection || Manager.IsListening);
@@ -86,7 +93,7 @@ namespace MadMachines.Networking
                 IsServerProcess = options.Server;
                 ValidateConfiguration();
                 if (NetworkManager.Singleton != null || GetComponent<NetworkManager>() != null)
-                    throw new InvalidOperationException("A NetworkManager already exists. Open only NetworkSandbox and restart Play Mode.");
+                    throw new InvalidOperationException("A NetworkManager already exists. Open only one network scene and restart Play Mode.");
                 previousFixedDeltaTime = Time.fixedDeltaTime;
                 previousTimeScale = Time.timeScale;
                 previousTargetFrameRate = Application.targetFrameRate;
@@ -102,7 +109,7 @@ namespace MadMachines.Networking
                 Transport.DisconnectTimeoutMS = 6000;
                 Scene sessionScene = gameObject.scene;
                 Manager = gameObject.AddComponent<NetworkManager>();
-                // NGO moves its root to DontDestroyOnLoad in OnEnable. This sandbox is scene-scoped.
+                // NGO moves its root to DontDestroyOnLoad in OnEnable. The session belongs to the loaded map.
                 SceneManager.MoveGameObjectToScene(gameObject, sessionScene);
                 Manager.NetworkConfig = new NetworkConfig
                 {
@@ -183,15 +190,60 @@ namespace MadMachines.Networking
                 throw new InvalidOperationException("The network session must be a root scene object.");
             if (string.IsNullOrWhiteSpace(mapId))
                 throw new InvalidOperationException("The network session requires a map ID for connection approval.");
-            if (spawnPoints == null || spawnPoints.Length != 2 || spawnPoints[0] == null || spawnPoints[1] == null || spawnPoints[0] == spawnPoints[1])
-                throw new InvalidOperationException("NetworkSandbox requires two distinct spawn points.");
-            foreach (Transform start in spawnPoints)
-                if (start.gameObject.scene != gameObject.scene)
-                    throw new InvalidOperationException("NetworkSandbox spawn points must belong to the session scene.");
+            if (spawnPoints == null || (HasTeams ? spawnPoints.Length != opposingTeamSpawnPoints.Length : spawnPoints.Length != 2))
+                throw new InvalidOperationException("The session needs two individual starts or an equal number of starts for both teams.");
+            var starts = new HashSet<Transform>();
+            for (int slot = 0; slot < Capacity; slot++)
+            {
+                Transform start = StartForSlot(slot);
+                if (start == null || start.gameObject.scene != gameObject.scene || !starts.Add(start))
+                    throw new InvalidOperationException("Every spawn point must be distinct and belong to the session scene.");
+            }
             NetworkSandboxValidation.ValidateVehicle(vehiclePrefab, projectilePrefab);
             NetworkSandboxValidation.ValidateProjectile(projectilePrefab);
             if (vehiclePrefab.GetComponent<NetworkObject>().PrefabIdHash == projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash)
                 throw new InvalidOperationException("The vehicle and projectile prefabs have the same network ID.");
+        }
+
+        // Team slots alternate between spawn groups and keep their existing replicated slot ID.
+        public static int TeamForSlot(int slot) => slot % 2;
+
+        private Transform StartForSlot(int slot)
+        {
+            if (!HasTeams) return spawnPoints[slot];
+            return TeamForSlot(slot) == 0 ? spawnPoints[slot / 2] : opposingTeamSpawnPoints[slot / 2];
+        }
+
+        private int FindAvailableSlot()
+        {
+            if (!HasTeams) return slots.ContainsValue(0) ? 1 : 0;
+
+            int firstTeamCount = 0;
+            foreach (int slot in slots.Values)
+                if (TeamForSlot(slot) == 0) firstTeamCount++;
+            int preferredTeam = firstTeamCount <= slots.Count - firstTeamCount ? 0 : 1;
+
+            for (int offset = 0; offset < 2; offset++)
+            {
+                for (int slot = (preferredTeam + offset) % 2; slot < Capacity; slot += 2)
+                {
+                    if (slots.ContainsValue(slot)) continue;
+                    Transform start = StartForSlot(slot);
+                    if (!StartBlocked(start)) return slot;
+                }
+            }
+            return -1;
+        }
+
+        private static bool StartBlocked(Transform start)
+        {
+            foreach (Collider overlap in Physics.OverlapBox(start.position, new Vector3(3f, 2.5f, 4f), start.rotation,
+                NetworkVehicle.HitLayers, QueryTriggerInteraction.Ignore))
+            {
+                if (overlap.attachedRigidbody != null && overlap.attachedRigidbody.GetComponent<NetworkVehicle>() != null)
+                    return true;
+            }
+            return false;
         }
 
         public void Connect(string address, string port)
@@ -265,14 +317,20 @@ namespace MadMachines.Networking
                 Log($"Rejected client {request.ClientNetworkId}: {diagnostic}");
                 return;
             }
-            if (!ready || Manager.ShutdownInProgress || slots.Count >= 2 || slots.ContainsKey(request.ClientNetworkId))
+            if (!ready || Manager.ShutdownInProgress || slots.Count >= Capacity || slots.ContainsKey(request.ClientNetworkId))
             {
                 response.Approved = false;
-                response.Reason = ServerFullReason;
+                response.Reason = HasTeams ? TeamServerFullReason : LegacyServerFullReason;
                 Log($"Rejected client {request.ClientNetworkId}: no player slot available.");
                 return;
             }
-            int slot = slots.ContainsValue(0) ? 1 : 0;
+            int slot = FindAvailableSlot();
+            if (slot < 0)
+            {
+                response.Approved = false;
+                response.Reason = SpawnBlockedReason;
+                return;
+            }
             slots.Add(request.ClientNetworkId, slot);
             configurations[request.ClientNetworkId] = NetworkSessionProtocol.ReadDrive(request.Payload);
             response.Approved = true;
@@ -294,7 +352,7 @@ namespace MadMachines.Networking
             GameObject instance = null;
             try
             {
-                Transform start = spawnPoints[slot];
+                Transform start = StartForSlot(slot);
                 instance = Instantiate(vehiclePrefab, start.position, start.rotation);
                 NetworkObject player = instance.GetComponent<NetworkObject>();
                 instance.GetComponent<NetworkVehicle>().InitializeServer(slot, clientId);
@@ -304,7 +362,7 @@ namespace MadMachines.Networking
                 player.Spawn(destroyWithScene: true);
                 if (!player.IsSpawned) throw new InvalidOperationException("Netcode did not spawn the vehicle.");
                 players.Add(clientId, player);
-                Log($"Client {clientId} joined with vehicle {player.NetworkObjectId}, slot {slot + 1}. Vehicles: {players.Count}/2.");
+                Log($"Client {clientId} joined with vehicle {player.NetworkObjectId}, slot {slot + 1}. Vehicles: {players.Count}/{Capacity}.");
             }
             catch (Exception error)
             {
@@ -331,7 +389,7 @@ namespace MadMachines.Networking
                 slots.Remove(clientId);
                 configurations.Remove(clientId);
                 if (player != null && player.IsSpawned) player.Despawn(true);
-                Log($"Client {clientId} disconnected. Vehicles: {players.Count}/2.");
+                Log($"Client {clientId} disconnected. Vehicles: {players.Count}/{Capacity}.");
             }
             else if (wantsConnection && !applicationQuitting)
             {
@@ -346,9 +404,10 @@ namespace MadMachines.Networking
 
                 // Older builds can be rejected by the NGO config hash before approval can send a reason.
                 NetworkTransport.DisconnectEvents disconnect = Manager.DisconnectEvent;
+                bool waitingForSlot = reason == LegacyServerFullReason || reason == TeamServerFullReason || reason == SpawnBlockedReason;
                 if (!joined && (disconnect == NetworkTransport.DisconnectEvents.ClosedByRemote ||
                     disconnect == NetworkTransport.DisconnectEvents.ProtocolError) &&
-                    reason != ServerFullReason)
+                    !waitingForSlot)
                 {
                     if (++earlyRejections >= 2)
                     {
@@ -358,7 +417,7 @@ namespace MadMachines.Networking
                 }
                 else earlyRejections = 0;
                 string detail = joined ? "Связь потеряна." : "Не удалось подключиться. См. журнал.";
-                ScheduleRetry(reason == ServerFullReason ? reason : detail);
+                ScheduleRetry(waitingForSlot ? reason : detail);
             }
         }
 
@@ -414,14 +473,14 @@ namespace MadMachines.Networking
 
         private ServerSessionInfo DescribeSession()
         {
-            // These are the rules implemented by this server: continuous free driving, join any time.
             return new ServerSessionInfo
             {
                 protocol = NetworkSessionProtocol.Version, mapId = mapId, location = locationName,
                 vehicleId = vehiclePrefab.GetComponent<NetworkVehicle>().DefinitionId,
                 vehicleName = vehiclePrefab.GetComponent<NetworkVehicle>().DisplayName,
-                mode = "free", phase = "running", players = slots.Count, capacity = 2,
-                joinable = ready && !Manager.ShutdownInProgress && slots.Count < 2
+                mode = HasTeams ? ServerSessionInfo.TeamSkirmishMode : ServerSessionInfo.FreeMode,
+                phase = "running", players = slots.Count, capacity = Capacity,
+                joinable = ready && !Manager.ShutdownInProgress && slots.Count < Capacity
             };
         }
 

@@ -17,13 +17,18 @@ namespace MadMachines
         public const string ShootingRangeScene = "ShootingRange_01";
         public const string ShootingRangeScenePath = "Assets/MadMachines/Scenes/" + ShootingRangeScene + ".unity";
         public const string ShootingRangeLocation = "Стрелковый полигон";
+        public const string ThreeRoadsScene = "Map_01_ThreeRoads";
+        public const string ThreeRoadsScenePath = "Assets/MadMachines/Scenes/" + ThreeRoadsScene + ".unity";
+        public const string ThreeRoadsMapId = "three_roads_01";
+        public const string ThreeRoadsLocation = "Три дороги";
         public static readonly string[] PlayerScenes =
         {
             "Assets/MadMachines/Scenes/FrontEnd.unity",
             "Assets/MadMachines/Scenes/Playground.unity",
             "Assets/MadMachines/Networking/Scenes/NetworkSandbox.unity",
             TestAsphaltScenePath,
-            ShootingRangeScenePath
+            ShootingRangeScenePath,
+            ThreeRoadsScenePath
         };
         private static GameFlow instance;
         private static readonly List<VehicleDefinition> catalog = new List<VehicleDefinition>();
