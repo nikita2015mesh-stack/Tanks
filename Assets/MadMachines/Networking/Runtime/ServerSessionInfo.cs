@@ -21,7 +21,12 @@ namespace MadMachines.Networking
         public int capacity;
         public bool joinable;
 
-        public string Scene => mapId == "sandbox" ? "NetworkSandbox" : null;
+        public string Scene => mapId switch
+        {
+            "sandbox" => "NetworkSandbox",
+            GameFlow.TestAsphaltMapId => GameFlow.TestAsphaltScene,
+            _ => null
+        };
         public bool Supported => protocol == NetworkSessionProtocol.Version && Scene != null && mode == "free" && phase == "running";
         public string Summary => $"{location}\nСвободная езда · сессия идёт\nИгроков: {players}/{capacity}";
     }

@@ -234,6 +234,14 @@ namespace MadMachines.Networking.Editor
         public static void BuildLinuxServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
             NetworkBuildOutput.LinuxServer, NetworkBuildOutput.LinuxServerExecutable);
 
+        [MenuItem("Tools/Mad Machines/Networking/Испытательная трасса/Собрать сервер Windows")]
+        public static void BuildWindowsTestAsphaltServer() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Server,
+            GameFlow.TestAsphaltScene + "-WindowsServer", NetworkBuildOutput.WindowsServerExecutable, GameFlow.TestAsphaltScenePath);
+
+        [MenuItem("Tools/Mad Machines/Networking/Испытательная трасса/Собрать сервер Linux")]
+        public static void BuildLinuxTestAsphaltServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
+            GameFlow.TestAsphaltScene + "-LinuxServer", NetworkBuildOutput.LinuxServerExecutable, GameFlow.TestAsphaltScenePath);
+
         private static bool Build(BuildTarget target, StandaloneBuildSubtarget subtarget, string outputTarget, string executable,
             string scenePath = ScenePath)
         {
@@ -284,6 +292,8 @@ namespace MadMachines.Networking.Editor
             try
             {
                 NetworkSandboxSession session = null;
+                bool routedSession = path == GameFlow.TestAsphaltScenePath;
+                bool inspectInactiveCameras = !routedSession;
                 foreach (GameObject root in scene.GetRootGameObjects())
                 {
                     foreach (NetworkSandboxSession candidate in root.GetComponentsInChildren<NetworkSandboxSession>(true))
@@ -291,12 +301,20 @@ namespace MadMachines.Networking.Editor
                         if (session != null) throw new InvalidOperationException(sceneName + " содержит несколько сессий.");
                         session = candidate;
                     }
-                    if (root.GetComponentInChildren<Camera>(true) != null || root.GetComponentInChildren<AudioListener>(true) != null ||
+                    bool hasCameraOrListener = (root.activeSelf || inspectInactiveCameras) &&
+                        (root.GetComponentInChildren<Camera>(inspectInactiveCameras) != null ||
+                        root.GetComponentInChildren<AudioListener>(inspectInactiveCameras) != null);
+                    if (hasCameraOrListener ||
                         root.GetComponentInChildren<NetworkClientView>(true) != null || root.GetComponentInChildren<NetworkManager>(true) != null ||
                         root.GetComponentInChildren<NetworkObject>(true) != null)
                         throw new InvalidOperationException(sceneName + " должна создавать камеру, HUD, NetworkManager и сетевые объекты только при запуске.");
                 }
-                if (session == null || !session.isActiveAndEnabled) throw new InvalidOperationException("Нет активной Network session.");
+                if (session == null || !session.enabled)
+                    throw new InvalidOperationException("Нет включённого компонента Network session.");
+                if (routedSession && session.gameObject.activeSelf)
+                    throw new InvalidOperationException("Объект Network session должен включаться при сетевом запуске трассы.");
+                if (!routedSession && !session.isActiveAndEnabled)
+                    throw new InvalidOperationException("Нет активной Network session.");
                 session.ValidateConfiguration();
                 Debug.Log($"[MM NET] Ссылки и настройки {sceneName} проверены. Сеть и физика этой командой не запускаются.");
             }

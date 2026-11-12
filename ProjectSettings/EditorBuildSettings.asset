@@ -14,5 +14,8 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/MadMachines/Networking/Scenes/NetworkSandbox.unity
     guid: 3237a714ba28fb14289f157d98924b70
+  - enabled: 1
+    path: Assets/MadMachines/Scenes/Test_Asphalt_01.unity
+    guid: 3151018e6d25570782ba1b89ce7a8c70
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
