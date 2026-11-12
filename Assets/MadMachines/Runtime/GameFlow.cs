@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using MadMachines.Networking;
@@ -10,9 +11,9 @@ namespace MadMachines
     public sealed class GameFlow : MonoBehaviour
     {
         public const string FrontEndScene = "FrontEnd";
+        public const string FrontEndScenePath = "Assets/MadMachines/Scenes/" + FrontEndScene + ".unity";
         public const string AsphaltTrackScene = "Location_AsphaltTrack";
         public const string AsphaltTrackScenePath = "Assets/MadMachines/Scenes/" + AsphaltTrackScene + ".unity";
-        public const string AsphaltTrackMapId = "test_asphalt_01";
         public const string AsphaltTrackLocation = "Полигон — асфальтовая трасса";
         public const string DirtTrackScene = "Location_DirtTrack";
         public const string DirtTrackScenePath = "Assets/MadMachines/Scenes/" + DirtTrackScene + ".unity";
@@ -22,12 +23,10 @@ namespace MadMachines
         public const string ShootingRangeLocation = "Стрельбище";
         public const string ThreeRoadsScene = "Map_01_ThreeRoads";
         public const string ThreeRoadsScenePath = "Assets/MadMachines/Scenes/" + ThreeRoadsScene + ".unity";
-        public const string ThreeRoadsMapId = "three_roads_01";
         public const string ThreeRoadsLocation = "Три дороги";
         public static readonly string[] PlayerScenes =
         {
-            "Assets/MadMachines/Scenes/FrontEnd.unity",
-            "Assets/MadMachines/Networking/Scenes/NetworkSandbox.unity",
+            FrontEndScenePath,
             AsphaltTrackScenePath,
             DirtTrackScenePath,
             ShootingRangeScenePath,
@@ -38,7 +37,7 @@ namespace MadMachines
         public static IReadOnlyList<VehicleDefinition> Vehicles => catalog;
         public static VehicleDefinition CurrentVehicle { get; private set; }
         public static bool LocalLaunchPending { get; private set; }
-        public static bool OnlineLaunchPending { get; private set; }
+        public static bool OnlineLaunchPending => MatchTicket != Guid.Empty;
         public static bool GarageTestActive { get; private set; }
         public static ChallengeMode LocalMode { get; private set; }
         public static string ServerAddress { get; private set; }
@@ -48,6 +47,9 @@ namespace MadMachines
         public static bool OverlayVisible => Loading && Time.realtimeSinceStartupAsDouble - instance.startedAt >= 0.5;
         public static VehicleDrive SelectedDrive { get; private set; } = VehicleDrive.All;
         public static string Notice { get; private set; }
+        internal static Guid MatchTicket { get; private set; }
+        internal static MatchLobbyClient Lobby => instance.lobby;
+        private readonly MatchLobbyClient lobby = new MatchLobbyClient();
         private bool loading;
         private bool cancel;
         private bool canCancel;
@@ -61,10 +63,11 @@ namespace MadMachines
             instance = null;
             catalog.Clear();
             CurrentVehicle = null;
-            LocalLaunchPending = OnlineLaunchPending = GarageTestActive = false;
+            LocalLaunchPending = GarageTestActive = false;
             SelectedDrive = VehicleDrive.All;
             ServerAddress = Notice = null;
             ServerPort = 0;
+            MatchTicket = Guid.Empty;
         }
 
         public static void Initialize()
@@ -119,8 +122,9 @@ namespace MadMachines
         {
             Initialize();
             if (Loading || CurrentVehicle == null) return;
+            Lobby.Dispose();
+            MatchTicket = Guid.Empty;
             LocalLaunchPending = true;
-            OnlineLaunchPending = false;
             GarageTestActive = fromGarage;
             LocalMode = mode;
             instance.StartCoroutine(instance.Load(scene, false));
@@ -135,16 +139,20 @@ namespace MadMachines
             return openGarage;
         }
 
-        public static void StartOnline(string scene, string address, ushort port)
+        internal static void StartMatch(string address, ushort port, Guid ticket)
         {
-            Initialize();
-            if (Loading || CurrentVehicle == null) return;
-            LocalLaunchPending = false;
-            OnlineLaunchPending = true;
-            GarageTestActive = false;
+            if (Loading || CurrentVehicle == null || OnlineLaunchPending || ticket == Guid.Empty) return;
+            LocalLaunchPending = GarageTestActive = false;
             ServerAddress = address;
             ServerPort = port;
-            instance.StartCoroutine(instance.Load(scene, true));
+            MatchTicket = ticket;
+            instance.StartCoroutine(instance.Load(ThreeRoadsScene, true));
+        }
+
+        internal static void CancelMatchPreparation(string notice = null)
+        {
+            if (notice != null) Notice = notice;
+            if (Loading && MatchTicket != Guid.Empty) instance.cancel = true;
         }
 
         public static void ReturnToMain() => ReturnToFrontEnd(false);
@@ -155,7 +163,9 @@ namespace MadMachines
         {
             Initialize();
             if (Loading) return;
-            LocalLaunchPending = OnlineLaunchPending = false;
+            if (MatchTicket != Guid.Empty) Lobby.SetWaiting(false);
+            MatchTicket = Guid.Empty;
+            LocalLaunchPending = false;
             GarageTestActive = openGarage;
             instance.StartCoroutine(instance.Load(FrontEndScene, false));
         }
@@ -175,8 +185,10 @@ namespace MadMachines
             if (!Application.CanStreamedLevelBeLoaded(scene))
             {
                 Notice = "Карта отсутствует в этой сборке игры.";
-                LocalLaunchPending = OnlineLaunchPending = loading = false;
+                LocalLaunchPending = loading = false;
                 GarageTestActive = false;
+                if (MatchTicket != Guid.Empty) Lobby.SetWaiting(false);
+                MatchTicket = Guid.Empty;
                 yield break;
             }
             AsyncOperation operation = SceneManager.LoadSceneAsync(scene, LoadSceneMode.Single);
@@ -190,12 +202,14 @@ namespace MadMachines
             NetworkSandboxSession session = online ? FindFirstObjectByType<NetworkSandboxSession>() : null;
             if (online && !cancel)
             {
-                double deadline = Time.realtimeSinceStartupAsDouble + 12;
+                double deadline = Time.realtimeSinceStartupAsDouble + 30;
                 while (!cancel)
                 {
                     NetworkClientView client = session != null ? session.GetComponent<NetworkClientView>() : null;
-                    if (client != null && client.ReadyForPlay) break;
-                    message = session != null ? session.Status : "Не удалось подготовить подключение.";
+                    if (client != null && client.ReadyForPlay && Lobby.Phase == MatchLobbyPhase.Running) break;
+                    message = session?.Manager != null && session.Manager.IsConnectedClient
+                        ? "Ждём готовности игроков…"
+                        : session != null ? session.Status : "Не удалось подготовить подключение.";
                     if (session == null || session.ConnectionStopped || Time.realtimeSinceStartupAsDouble >= deadline)
                     {
                         Notice = session != null && session.ConnectionStopped ? session.Status : "Не удалось войти за отведённое время. Проверьте доступность сервера.";
@@ -207,13 +221,15 @@ namespace MadMachines
             }
             if (cancel && scene != FrontEndScene)
             {
+                if (MatchTicket != Guid.Empty && (Lobby.Phase != MatchLobbyPhase.Waiting || Notice != null)) Lobby.SetWaiting(false);
+                MatchTicket = Guid.Empty;
                 message = GarageTestActive ? "Возвращаемся в гараж…" : "Возвращаемся на главный…";
                 if (session != null)
                 {
                     session.Disconnect();
                     while (session.Manager != null && (session.Manager.IsListening || session.Manager.ShutdownInProgress)) yield return null;
                 }
-                LocalLaunchPending = OnlineLaunchPending = false;
+                LocalLaunchPending = false;
                 operation = SceneManager.LoadSceneAsync(FrontEndScene, LoadSceneMode.Single);
                 while (!operation.isDone) yield return null;
             }
@@ -223,9 +239,18 @@ namespace MadMachines
 
         private void Update()
         {
+            lobby.Update();
             if (loading && canCancel && UnityEngine.InputSystem.Keyboard.current != null &&
-                UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame) cancel = true;
+                UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame) CancelLoading();
         }
+
+        private void CancelLoading()
+        {
+            if (MatchTicket != Guid.Empty) Lobby.SetWaiting(false);
+            cancel = true;
+        }
+
+        private void OnDestroy() => lobby.Dispose();
 
         private void OnGUI()
         {
@@ -240,7 +265,7 @@ namespace MadMachines
             GUI.Label(new Rect(35, 35, Screen.width - 70, 100), message, style);
             if (message == "Загружаем карту…") GUI.Label(new Rect(35, 135, 200, 35), $"{Mathf.Clamp01(progress / 0.9f):P0}", style);
             GUI.enabled = !cancel;
-            if (canCancel && GUI.Button(new Rect(35, 185, 240, 45), "ОТМЕНА")) cancel = true;
+            if (canCancel && GUI.Button(new Rect(35, 185, 240, 45), "ОТМЕНА")) CancelLoading();
             GUI.enabled = true;
             GUI.matrix = previous;
         }

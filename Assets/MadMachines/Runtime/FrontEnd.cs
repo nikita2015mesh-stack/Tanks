@@ -14,7 +14,6 @@ namespace MadMachines
         private static readonly string[] DriveNames = { "Полный", "Передний", "Задний" };
         [SerializeField] private VehicleDefinition vehicle;
         [SerializeField] private VehicleDefinition[] vehicles;
-        private readonly ServerSessionQuery query = new ServerSessionQuery();
         private readonly GameSettingsPanel settings = new GameSettingsPanel();
         private Page page;
         private Dialog dialog;
@@ -24,9 +23,7 @@ namespace MadMachines
         private bool rotate = true;
         private string address;
         private string port;
-        private string queriedAddress;
-        private ushort queriedPort;
-        private double infoExpires;
+        private bool invalidEndpoint;
         private GUIStyle heading;
         private GUIStyle label;
         private GUIStyle button;
@@ -37,15 +34,21 @@ namespace MadMachines
 
         private void Awake()
         {
+#if UNITY_SERVER && !UNITY_EDITOR
+            enabled = false;
+            MatchLobbyServer.StartDedicated();
+#else
             GameFlow.RegisterVehicles(vehicle, vehicles);
             string previousMap = PlayerPrefs.GetString(LocalMapKey, GameFlow.AsphaltTrackScene);
             if (previousMap == "ShootingRange_01") previousMap = GameFlow.ShootingRangeScene;
             localMap = Mathf.Max(0, System.Array.IndexOf(LocalMapScenes, previousMap));
             address = PlayerPrefs.GetString("MadMachines.Server.Address.v1", "127.0.0.1");
             port = PlayerPrefs.GetString("MadMachines.Server.Port.v1", "7777");
+            invalidEndpoint = !GameFlow.Lobby.Configure(address, port);
             CreateStage();
             BuildPreview(GameFlow.CurrentVehicle);
             if (GameFlow.ConsumeGarageReturn()) OpenGarage();
+#endif
         }
 
         private void CreateStage()
@@ -111,12 +114,12 @@ namespace MadMachines
 
         private void Update()
         {
-            query.Poll();
             if (preview != null && rotate && !GameFlow.Loading) preview.Rotate(Vector3.up, 8f * Time.unscaledDeltaTime, Space.World);
             if (GameFlow.Loading || Keyboard.current == null || !Keyboard.current.escapeKey.wasPressedThisFrame) return;
             if (dialog != Dialog.None) dialog = Dialog.None;
             else if (settings.IsOpen) settings.Close();
             else if (page == Page.Garage) LeaveGarage();
+            else if (GameFlow.Lobby.WantsMatch) GameFlow.Lobby.SetWaiting(false);
             else dialog = Dialog.Quit;
         }
 
@@ -177,47 +180,58 @@ namespace MadMachines
 
         private void DrawOnline()
         {
-            bool interactable = GUI.enabled;
             GUILayout.Label("Адрес сервера и игровой порт", label);
             GUILayout.BeginHorizontal();
             address = GUILayout.TextField(address, 45, GUILayout.Height(30));
             port = GUILayout.TextField(port, 5, GUILayout.Width(80), GUILayout.Height(30));
             GUILayout.EndHorizontal();
-            if (GUILayout.Button(query.Pending ? "ОТМЕНИТЬ ПРОВЕРКУ" : "ПРОВЕРИТЬ", button))
+            bool changed = address != GameFlow.Lobby.Address || port != GameFlow.Lobby.Port.ToString();
+            if (changed && GUILayout.Button("СОХРАНИТЬ АДРЕС", button))
             {
-                if (query.Pending) query.Cancel();
-                else
-                {
-                    queriedAddress = address;
-                    ushort.TryParse(port, out queriedPort);
-                    infoExpires = Time.realtimeSinceStartupAsDouble + 15;
-                    query.Begin(address, port);
-                }
+                invalidEndpoint = !GameFlow.Lobby.Configure(address, port);
+                if (!invalidEndpoint) SaveServerAddress();
             }
-            GUILayout.Label(query.Status ?? "Проверьте доступный режим перед запуском.", label);
-            ServerSessionInfo info = query.Result;
-            bool fresh = info != null && Time.realtimeSinceStartupAsDouble < infoExpires && address == queriedAddress && port == queriedPort.ToString();
-            if (info != null && fresh)
+            if (invalidEndpoint) GUILayout.Label("Укажите IPv4 и игровой порт от 1 до 65534.", label);
+
+            DrawMatchmaking(!changed);
+        }
+
+        private void DrawMatchmaking(bool endpointApplied)
+        {
+            MatchLobbyClient lobby = GameFlow.Lobby;
+            bool connected = endpointApplied && lobby.Connected;
+            GUILayout.BeginHorizontal();
+            Color color = GUI.contentColor;
+            GUI.contentColor = connected ? new Color(0.3f, 0.9f, 0.43f) : new Color(1f, 0.4f, 0.4f);
+            GUILayout.Label("●", label, GUILayout.Width(20));
+            GUI.contentColor = color;
+            GUILayout.Label(connected ? "Сервер подключён" : "Нет связи с сервером", label);
+            GUILayout.EndHorizontal();
+            GUILayout.Label("Deathmatch", label);
+            if (lobby.WantsMatch)
             {
-                if (info.Supported) GUILayout.Label(info.Summary, label);
-                bool correctVehicle = GameFlow.CurrentVehicle != null && GameFlow.CurrentVehicle.Id == info.vehicleId;
-                if (!correctVehicle) GUILayout.Label("Сервер допускает машину: " + (info.vehicleName ?? "не сообщена"), label);
-                GUI.enabled = interactable && info.Supported && info.joinable && correctVehicle;
-                if (GUILayout.Button("ИГРАТЬ", button))
-                {
-                    PlayerPrefs.SetString("MadMachines.Server.Address.v1", address);
-                    PlayerPrefs.SetString("MadMachines.Server.Port.v1", port);
-                    PlayerPrefs.Save();
-                    GameFlow.StartOnline(info.Scene, queriedAddress, queriedPort);
-                }
+                GUILayout.Label(lobby.Phase == MatchLobbyPhase.Loading ? "Состав собран. Готовим карту…" :
+                    $"Ожидаем игроков {lobby.Players}/{lobby.RequiredPlayers}", label);
+                if (GUILayout.Button("ОТМЕНИТЬ ОЖИДАНИЕ", button)) lobby.SetWaiting(false);
+                return;
             }
-            else if (info != null) GUILayout.Label("Обновите сведения для выбранного адреса.", label);
+
+            bool interactable = GUI.enabled;
+            GUI.enabled = interactable && connected && GameFlow.CurrentVehicle != null;
+            if (GUILayout.Button("В БОЙ", button)) lobby.SetWaiting(true);
             GUI.enabled = interactable;
+        }
+
+        private void SaveServerAddress()
+        {
+            PlayerPrefs.SetString("MadMachines.Server.Address.v1", address);
+            PlayerPrefs.SetString("MadMachines.Server.Port.v1", port);
+            PlayerPrefs.Save();
         }
 
         private void OpenGarage()
         {
-            query.Cancel();
+            GameFlow.Lobby.SetWaiting(false);
             draftVehicle = GameFlow.CurrentVehicle;
             draftDrive = GameFlow.SelectedDrive;
             page = Page.Garage;
@@ -310,7 +324,5 @@ namespace MadMachines
             Application.Quit();
 #endif
         }
-
-        private void OnDestroy() => query.Dispose();
     }
 }

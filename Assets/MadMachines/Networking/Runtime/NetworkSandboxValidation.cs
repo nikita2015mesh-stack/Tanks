@@ -34,7 +34,7 @@ namespace MadMachines.Networking
             NetworkPhysicsState replication = prefab.GetComponent<NetworkPhysicsState>();
             if (replication == null || !replication.enabled || prefab.GetComponentInChildren<NetworkTransform>(true) != null ||
                 prefab.GetComponentInChildren<NetworkRigidbody>(true) != null)
-                throw new InvalidOperationException(prefab.name + ": expected NetworkPhysicsState without NetworkTransform or NetworkRigidbody. Run Upgrade sandbox replication.");
+                throw new InvalidOperationException(prefab.name + ": expected NetworkPhysicsState without NetworkTransform or NetworkRigidbody.");
             if (prefab.GetComponentsInChildren<NetworkObject>(true).Length != 1)
                 throw new InvalidOperationException(prefab.name + ": nested NetworkObjects are not supported.");
             if (prefab.GetComponentsInChildren<Rigidbody>(true).Length != 1)

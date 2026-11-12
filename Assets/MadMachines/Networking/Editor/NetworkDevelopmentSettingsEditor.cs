@@ -9,9 +9,6 @@ namespace MadMachines.Networking.Editor
         private const string SettingsPath = "Preferences/Mad Machines/Networking";
         private static readonly string[] Modes = { "Offline", "Development Online", "Remote Online" };
 
-        [MenuItem("Tools/Mad Machines/Networking/Development Settings")]
-        private static void Open() => SettingsService.OpenUserPreferences(SettingsPath);
-
         [SettingsProvider]
         public static SettingsProvider CreateProvider()
         {
@@ -39,7 +36,7 @@ namespace MadMachines.Networking.Editor
                     draft.localPort = EditorGUILayout.IntField("Локальный UDP-порт", draft.localPort);
                     draft.remoteAddress = EditorGUILayout.TextField("Удалённый IPv4", draft.remoteAddress);
                     draft.remotePort = EditorGUILayout.IntField("Удалённый UDP-порт", draft.remotePort);
-                    EditorGUILayout.HelpBox("Offline оставляет Playground автономным и выключает автоподключение NetworkSandbox. Настройки вступят в силу при следующем запуске клиента. Для смены порта работающего локального сервера используйте Restart Development Server.", MessageType.Info);
+                    EditorGUILayout.HelpBox("Эти настройки используются при прямом запуске NetworkSandbox в редакторе. Offline выключает автоподключение. Изменения вступают в силу при следующем входе в Play Mode.", MessageType.Info);
                     if (GUILayout.Button("Сохранить"))
                     {
                         try

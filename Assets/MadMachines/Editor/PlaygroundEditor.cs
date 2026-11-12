@@ -33,28 +33,25 @@ namespace MadMachines.Editor
         }
 
         [MenuItem("Tools/Mad Machines/Build Windows player")]
-        public static void BuildWindows()
+        public static void BuildWindows() => BuildPlayer(BuildTarget.StandaloneWindows64, "Builds/MadMachines/MadMachines.exe");
+
+        [MenuItem("Tools/Mad Machines/Build Linux player")]
+        public static void BuildLinux() => BuildPlayer(BuildTarget.StandaloneLinux64, "Builds/MadMachines-Linux/MadMachines.x86_64");
+
+        private static void BuildPlayer(BuildTarget target, string output)
         {
             if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
-            const string output = "Builds/MadMachines/MadMachines.exe";
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             UnityEditor.Build.Reporting.BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = GameFlow.PlayerScenes,
                 locationPathName = output,
-                target = BuildTarget.StandaloneWindows64,
+                target = target,
+                subtarget = (int)StandaloneBuildSubtarget.Player,
                 options = BuildOptions.None
             });
             if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
                 throw new System.Exception("MAD MACHINES player build failed: " + report.summary.result);
-        }
-
-        public static string[] PlayerScenesStartingWith(string scenePath)
-        {
-            var scenes = new System.Collections.Generic.List<string> { scenePath };
-            foreach (string path in GameFlow.PlayerScenes)
-                if (path != scenePath) scenes.Add(path);
-            return scenes.ToArray();
         }
 
         private static void Monitor()

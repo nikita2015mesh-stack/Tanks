@@ -186,7 +186,7 @@ namespace MadMachines.Networking
                 nearest = hit.distance;
                 targetBody = hit.rigidbody;
             }
-            aimedVehicle = session.HasTeams && targetBody != null ? targetBody.GetComponent<NetworkVehicle>() : null;
+            aimedVehicle = session.HasTeams && !session.MatchGame && targetBody != null ? targetBody.GetComponent<NetworkVehicle>() : null;
             Vector3 aim = target - localVehicle.MuzzlePosition;
             return aim.sqrMagnitude > 0.001f ? aim.normalized : direction;
         }
@@ -229,7 +229,7 @@ namespace MadMachines.Networking
                 if (localVehicle != null)
                 {
                     GUILayout.Label($"{localVehicle.DisplayName} · Машина {localVehicle.Slot + 1}    {localVehicle.Speed:0} км/ч\nВыстрелов: {localVehicle.Shots}    Попаданий по вам: {localVehicle.Hits}");
-                    if (session.HasTeams) GUILayout.Label(TeamName(localVehicle));
+                    if (session.HasTeams && !session.MatchGame) GUILayout.Label(TeamName(localVehicle));
                 }
                 if (GUILayout.Button("Вернуться к управлению")) CaptureCursor();
             }
@@ -253,8 +253,9 @@ namespace MadMachines.Networking
         {
             if (ReadyForPlay && Cursor.lockState == CursorLockMode.Locked)
             {
-                string team = session.HasTeams ? $"\n{TeamName(localVehicle)} · Попаданий по вам: {localVehicle.Hits}" : string.Empty;
-                GUI.Box(new Rect(16, 16, 330, 75), $"{session.LocationName} · {ServerSessionInfo.ModeName(session.HasTeams)}\n{localVehicle.Speed:0} км/ч · Пушка{team}");
+                string team = session.HasTeams && !session.MatchGame ? $"\n{TeamName(localVehicle)} · Попаданий по вам: {localVehicle.Hits}" : string.Empty;
+                string mode = session.MatchGame ? "Deathmatch · проверка входа" : ServerSessionInfo.ModeName(session.HasTeams);
+                GUI.Box(new Rect(16, 16, 390, 75), $"{session.LocationName} · {mode}\n{localVehicle.Speed:0} км/ч · Пушка{team}");
                 DrawCrosshair();
                 return;
             }

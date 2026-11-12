@@ -25,11 +25,6 @@ namespace MadMachines.Networking
             {
                 string key = arguments[i];
                 if (!key.StartsWith("-mm-", StringComparison.Ordinal)) continue;
-                if (key == "-mm-server")
-                {
-                    options.Server = true;
-                    continue;
-                }
                 if (i + 1 >= arguments.Length || arguments[i + 1].StartsWith("-", StringComparison.Ordinal))
                     throw new ArgumentException("Missing value for " + key);
                 string value = arguments[++i];

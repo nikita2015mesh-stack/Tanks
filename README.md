@@ -12,15 +12,15 @@
 
 **Сборка Windows** — **Tools → Mad Machines → Build Windows player**. Команда собирает игру с меню, гаражом, полигонами и картой «Три дороги» в `Builds/MadMachines/MadMachines.exe`.
 
+**Сборка Linux** — **Tools → Mad Machines → Build Linux player**. Запускаемый файл — `Builds/MadMachines-Linux/MadMachines.x86_64`. [Запуск вдвоём по LAN](Docs/NETWORKING.md#два-компьютера-в-lan-на-mx-linux).
+
 Пробные заезды проходят в свободной езде без сервера. Локации также открываются напрямую в Unity.
 
-- [Полигон — асфальтовая трасса](Assets/MadMachines/Scenes/Location_AsphaltTrack.unity) · [Одиночная и сетевая проверка](Docs/CURRENT_STATE.md#испытательная-трасса)
+- [Полигон — асфальтовая трасса](Assets/MadMachines/Scenes/Location_AsphaltTrack.unity) · [Сценарий проверки](Docs/CURRENT_STATE.md#испытательная-трасса)
 - [Полигон — грунтовая трасса](Assets/MadMachines/Scenes/Location_DirtTrack.unity) · [Сценарий проверки](Docs/CURRENT_STATE.md#грунтовый-полигон)
 - [Стрельбище](Assets/MadMachines/Scenes/Location_ShootingRange.unity) · [Маршрут и проверка](Docs/CURRENT_STATE.md#стрельбище)
 
-**Игра по сети** — на главном укажи IPv4 и игровой порт, нажми «Проверить», затем «Играть». Текущая машина должна соответствовать правилам сервера. [«Три дороги»](Assets/MadMachines/Scenes/Map_01_ThreeRoads.unity) рассчитана на командную стычку до 16 игроков. На сетевых полигонах доступна свободная езда двух игроков. Для игрового UDP 7777 также нужен UDP 7778. [Запуск сервера и проверка карты](Docs/CURRENT_STATE.md#карта-три-дороги).
-
-**Сетевая разработка** — в том же проекте откройте меню **Tools → Mad Machines → Networking**, соберите и запустите Development Server, затем откройте NetworkSandbox и нажмите Play.
+**Игра по сети** — собери сервер через **Tools → Mad Machines → Networking → Собрать сервер**. Клиент подключается в фоне. На главном дождись зелёного индикатора и нажми «В бой». Для старта «Трёх дорог» нужны две заявки. Сервер использует UDP 7777 и 7778. [Запуск и проверка](Docs/NETWORKING.md#два-компьютера-в-lan-на-mx-linux).
 
 ## Структура проекта
 
@@ -40,5 +40,5 @@
 - [Текущее состояние и проверка](Docs/CURRENT_STATE.md) · [Архитектура](Docs/ARCHITECTURE.md)
 - [Экраны и пользовательские сценарии](Docs/SCREENS_AND_FLOWS.md) · [План первого Deathmatch](Docs/DEATHMATCH_PLAN.md)
 - [Видение игры](Docs/VISION.md) · [Этапы разработки](Docs/ROADMAP.md) · [Ближайшие задачи](Docs/BACKLOG.md)
-- [Сетевой полигон и локальный Dedicated Server](Docs/NETWORKING.md)
+- [Сервер и подключение по LAN](Docs/NETWORKING.md)
 - [Банк идей](Docs/IDEAS.md) · [Ресурсы и лицензии](Docs/ASSETS.md) · [Инструкции агентам](AGENTS.md)

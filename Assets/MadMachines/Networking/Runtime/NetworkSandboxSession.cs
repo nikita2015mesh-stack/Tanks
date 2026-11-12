@@ -28,7 +28,9 @@ namespace MadMachines.Networking
         private readonly Dictionary<ulong, int> slots = new Dictionary<ulong, int>();
         private readonly Dictionary<ulong, NetworkObject> players = new Dictionary<ulong, NetworkObject>();
         private readonly Dictionary<ulong, VehicleDrive> configurations = new Dictionary<ulong, VehicleDrive>();
-        private System.Net.Sockets.UdpClient querySocket;
+        private readonly Dictionary<ulong, Guid> matchTickets = new Dictionary<ulong, Guid>();
+        private readonly HashSet<ulong> matchReadyClients = new HashSet<ulong>();
+        private MatchLobbyServer matchLobby;
         private bool leaving;
         private double nextSessionUpdate;
         private const string SessionMessage = "MadMachines.Session.v1";
@@ -58,8 +60,10 @@ namespace MadMachines.Networking
         public bool IsServerProcess { get; private set; }
         public string LocationName => locationName;
         public bool HasTeams => opposingTeamSpawnPoints != null && opposingTeamSpawnPoints.Length > 0;
+        internal bool MatchGame => matchLobby != null || (!IsServerProcess && GameFlow.MatchTicket != Guid.Empty);
         public float ViewDistance => viewDistance;
         private int Capacity => HasTeams ? spawnPoints.Length + opposingTeamSpawnPoints.Length : spawnPoints.Length;
+        internal int ActivePlayerCount => players.Count;
         public bool ConnectionStopped => !ready || (!wantsConnection && (Manager == null || !Manager.IsConnectedClient));
         public bool CanConnect => !leaving && ready && !IsServerProcess && Manager != null && !Manager.IsListening && !Manager.ShutdownInProgress;
         public bool CanDisconnect => ready && !IsServerProcess && Manager != null && (wantsConnection || Manager.IsListening);
@@ -80,7 +84,7 @@ namespace MadMachines.Networking
             server = true;
 #endif
             string[] arguments = Environment.GetCommandLineArgs();
-            IsServerProcess = server || Array.IndexOf(arguments, "-mm-server") >= 0;
+            IsServerProcess = server;
             try
             {
                 options = NetworkLaunchOptions.Parse(arguments, server, NetworkDevelopmentSettings.Load());
@@ -91,6 +95,7 @@ namespace MadMachines.Networking
                     options.Mode = NetworkConnectionMode.RemoteOnline;
                 }
                 IsServerProcess = options.Server;
+                if (IsServerProcess) matchLobby = MatchLobbyServer.Instance;
                 ValidateConfiguration();
                 if (NetworkManager.Singleton != null || GetComponent<NetworkManager>() != null)
                     throw new InvalidOperationException("A NetworkManager already exists. Open only one network scene and restart Play Mode.");
@@ -111,14 +116,22 @@ namespace MadMachines.Networking
                 Manager = gameObject.AddComponent<NetworkManager>();
                 // NGO moves its root to DontDestroyOnLoad in OnEnable. The session belongs to the loaded map.
                 SceneManager.MoveGameObjectToScene(gameObject, sessionScene);
+                byte[] payload = NetworkSessionProtocol.CreatePayload(vehiclePrefab.GetComponent<NetworkObject>().PrefabIdHash,
+                    projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash, mapId,
+                    GameFlow.OnlineLaunchPending ? GameFlow.SelectedDrive : VehicleDrive.Configured);
+                if (!IsServerProcess && GameFlow.MatchTicket != Guid.Empty)
+                {
+                    byte[] ticket = GameFlow.MatchTicket.ToByteArray();
+                    int size = payload.Length;
+                    Array.Resize(ref payload, size + ticket.Length);
+                    ticket.CopyTo(payload, size);
+                }
                 Manager.NetworkConfig = new NetworkConfig
                 {
                     NetworkTransport = Transport,
                     NetworkTopology = NetworkTopologyTypes.ClientServer,
                     ProtocolVersion = NetworkSessionProtocol.NgoHandshakeVersion,
-                    ConnectionData = NetworkSessionProtocol.CreatePayload(vehiclePrefab.GetComponent<NetworkObject>().PrefabIdHash,
-                        projectilePrefab.GetComponent<NetworkObject>().PrefabIdHash, mapId,
-                        GameFlow.OnlineLaunchPending ? GameFlow.SelectedDrive : VehicleDrive.Configured),
+                    ConnectionData = payload,
                     TickRate = 30,
                     ClientConnectionBufferTimeout = 8,
                     EnableSceneManagement = false,
@@ -148,14 +161,6 @@ namespace MadMachines.Networking
                         throw new InvalidOperationException("The stop file already exists: " + options.StopFile);
                     if (!Manager.StartServer()) throw new InvalidOperationException("Could not start the server. Check the port and transport log.");
                     Debug.Log($"{ServerReadyMarker} UDP {options.BindAddress}:{Port}, protocol {NetworkSessionProtocol.Version}, map {mapId}.");
-                    try
-                    {
-                        querySocket = ServerSessionQuery.OpenServer(options.BindAddress, Port);
-                    }
-                    catch (Exception queryError)
-                    {
-                        Debug.LogWarning("[MM NET] Session query unavailable: " + queryError.Message);
-                    }
                     Log("Server ready. No local player was spawned.");
                 }
                 else
@@ -178,7 +183,10 @@ namespace MadMachines.Networking
                 if (Manager != null && Manager.IsListening) Manager.Shutdown();
                 Status = "Ошибка запуска. Подробности в журнале.";
                 Debug.LogError("[MM NET] Startup failed: " + error);
-                if (IsServerProcess) StopServer(1);
+                if (IsServerProcess)
+                {
+                    if (matchLobby == null) StopServer(1);
+                }
                 else if (GetComponent<NetworkClientView>() == null && (NetworkManager.Singleton == null || Manager == NetworkManager.Singleton))
                     gameObject.AddComponent<NetworkClientView>().Configure(this);
             }
@@ -309,7 +317,23 @@ namespace MadMachines.Networking
         {
             response.CreatePlayerObject = false;
             response.Pending = false;
-            string incompatibility = NetworkSessionProtocol.CheckCompatibility(request.Payload, Manager.NetworkConfig.ConnectionData, out string diagnostic);
+            byte[] payload = request.Payload;
+            Guid ticket = Guid.Empty;
+            if (matchLobby != null)
+            {
+                int size = Manager.NetworkConfig.ConnectionData.Length;
+                if (payload != null && payload.Length == size + 16)
+                {
+                    ticket = new Guid(payload.AsSpan(size));
+                    Array.Resize(ref payload, size);
+                }
+                if (!matchLobby.CanAdmit(ticket) || matchTickets.ContainsValue(ticket))
+                {
+                    response.Reason = "Сервер ждёт участников, получивших место через очередь.";
+                    return;
+                }
+            }
+            string incompatibility = NetworkSessionProtocol.CheckCompatibility(payload, Manager.NetworkConfig.ConnectionData, out string diagnostic);
             if (incompatibility != null)
             {
                 response.Approved = false;
@@ -332,7 +356,8 @@ namespace MadMachines.Networking
                 return;
             }
             slots.Add(request.ClientNetworkId, slot);
-            configurations[request.ClientNetworkId] = NetworkSessionProtocol.ReadDrive(request.Payload);
+            configurations[request.ClientNetworkId] = NetworkSessionProtocol.ReadDrive(payload);
+            if (matchLobby != null) matchTickets.Add(request.ClientNetworkId, ticket);
             response.Approved = true;
             Log($"Approved client {request.ClientNetworkId}, slot {slot + 1}.");
         }
@@ -348,12 +373,27 @@ namespace MadMachines.Networking
                 Log($"Подключено; локальный клиент {Manager.LocalClientId}.");
                 return;
             }
+            if (matchLobby != null && !matchLobby.Running)
+            {
+                if (!matchTickets.TryGetValue(clientId, out Guid ticket) || !matchLobby.CanAdmit(ticket)) return;
+                matchReadyClients.Add(clientId);
+                if (matchReadyClients.Count < MatchLobbyServer.RequiredPlayers) return;
+                foreach (ulong participant in new List<ulong>(matchReadyClients)) SpawnVehicle(participant);
+                if (players.Count == MatchLobbyServer.RequiredPlayers) matchLobby.GameplayStarted();
+                return;
+            }
+            SpawnVehicle(clientId);
+        }
+
+        private void SpawnVehicle(ulong clientId)
+        {
             if (players.ContainsKey(clientId) || !slots.TryGetValue(clientId, out int slot)) return;
             GameObject instance = null;
             try
             {
                 Transform start = StartForSlot(slot);
                 instance = Instantiate(vehiclePrefab, start.position, start.rotation);
+                if (matchLobby != null) SceneManager.MoveGameObjectToScene(instance, gameObject.scene);
                 NetworkObject player = instance.GetComponent<NetworkObject>();
                 instance.GetComponent<NetworkVehicle>().InitializeServer(slot, clientId);
                 // Approval accepts only configured/all/front/rear, never arbitrary forces.
@@ -375,6 +415,7 @@ namespace MadMachines.Networking
                 players.Remove(clientId);
                 slots.Remove(clientId);
                 configurations.Remove(clientId);
+                if (matchTickets.Remove(clientId, out Guid ticket)) matchLobby.GameplayConnectionLost(ticket);
                 Debug.LogError($"[MM NET] Could not spawn a vehicle for client {clientId}: {error}");
                 Manager.DisconnectClient(clientId, "Не удалось создать машину. См. журнал сервера.");
             }
@@ -388,6 +429,8 @@ namespace MadMachines.Networking
                 players.Remove(clientId);
                 slots.Remove(clientId);
                 configurations.Remove(clientId);
+                if (matchTickets.Remove(clientId, out Guid ticket)) matchLobby.GameplayConnectionLost(ticket);
+                matchReadyClients.Remove(clientId);
                 if (player != null && player.IsSpawned) player.Despawn(true);
                 Log($"Client {clientId} disconnected. Vehicles: {players.Count}/{Capacity}.");
             }
@@ -433,8 +476,8 @@ namespace MadMachines.Networking
             players.Clear();
             slots.Clear();
             configurations.Clear();
-            querySocket?.Dispose();
-            querySocket = null;
+            matchTickets.Clear();
+            matchReadyClients.Clear();
             ready = false;
             Log("Server stopped. Network objects were released.");
         }
@@ -475,12 +518,10 @@ namespace MadMachines.Networking
         {
             return new ServerSessionInfo
             {
-                protocol = NetworkSessionProtocol.Version, mapId = mapId, location = locationName,
-                vehicleId = vehiclePrefab.GetComponent<NetworkVehicle>().DefinitionId,
-                vehicleName = vehiclePrefab.GetComponent<NetworkVehicle>().DisplayName,
-                mode = HasTeams ? ServerSessionInfo.TeamSkirmishMode : ServerSessionInfo.FreeMode,
-                phase = "running", players = slots.Count, capacity = Capacity,
-                joinable = ready && !Manager.ShutdownInProgress && slots.Count < Capacity
+                location = locationName,
+                mode = MatchGame ? ServerSessionInfo.DeathmatchMode : HasTeams ? ServerSessionInfo.TeamSkirmishMode : ServerSessionInfo.FreeMode,
+                players = slots.Count,
+                capacity = MatchGame ? MatchLobbyServer.RequiredPlayers : Capacity
             };
         }
 
@@ -493,24 +534,14 @@ namespace MadMachines.Networking
 
         private void Update()
         {
-            if (IsServerProcess && Manager != null && Manager.IsListening && !Manager.ShutdownInProgress)
+            if (IsServerProcess && Manager != null && Manager.IsListening && !Manager.ShutdownInProgress &&
+                Manager.ConnectedClientsIds.Count > 0 && Time.realtimeSinceStartupAsDouble >= nextSessionUpdate)
             {
+                nextSessionUpdate = Time.realtimeSinceStartupAsDouble + 1;
                 SessionInfo = DescribeSession();
-                try
-                {
-                    ServerSessionQuery.Respond(querySocket, SessionInfo);
-                }
-                catch (System.Net.Sockets.SocketException error)
-                {
-                    Debug.LogWarning("[MM NET] Session query: " + error.Message);
-                }
-                if (Time.realtimeSinceStartupAsDouble >= nextSessionUpdate)
-                {
-                    nextSessionUpdate = Time.realtimeSinceStartupAsDouble + 1;
-                    using var writer = new FastBufferWriter(1024, Allocator.Temp);
-                    writer.WriteValueSafe(new FixedString512Bytes(JsonUtility.ToJson(SessionInfo)));
-                    Manager.CustomMessagingManager.SendNamedMessageToAll(SessionMessage, writer);
-                }
+                using var writer = new FastBufferWriter(1024, Allocator.Temp);
+                writer.WriteValueSafe(new FixedString512Bytes(JsonUtility.ToJson(SessionInfo)));
+                Manager.CustomMessagingManager.SendNamedMessageToAll(SessionMessage, writer);
             }
             if (quitAfterShutdown && (Manager == null || (!Manager.IsListening && !Manager.ShutdownInProgress)))
             {
@@ -528,7 +559,7 @@ namespace MadMachines.Networking
                 if (wantsConnection && CanConnect && Time.realtimeSinceStartupAsDouble >= nextAttempt) TryConnect();
                 return;
             }
-            if (options == null || string.IsNullOrEmpty(options.StopFile) || Time.realtimeSinceStartupAsDouble < nextStopCheck) return;
+            if (matchLobby != null || options == null || string.IsNullOrEmpty(options.StopFile) || Time.realtimeSinceStartupAsDouble < nextStopCheck) return;
             nextStopCheck = Time.realtimeSinceStartupAsDouble + 1;
             if (File.Exists(options.StopFile)) StopServer();
         }
@@ -545,8 +576,6 @@ namespace MadMachines.Networking
         {
             ready = false;
             wantsConnection = false;
-            querySocket?.Dispose();
-            querySocket = null;
             if (changedFixedDeltaTime)
             {
                 Time.fixedDeltaTime = previousFixedDeltaTime;
