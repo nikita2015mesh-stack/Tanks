@@ -10,11 +10,16 @@ namespace MadMachines
     public sealed class GameFlow : MonoBehaviour
     {
         public const string FrontEndScene = "FrontEnd";
+        public const string TestAsphaltScene = "Test_Asphalt_01";
+        public const string TestAsphaltScenePath = "Assets/MadMachines/Scenes/" + TestAsphaltScene + ".unity";
+        public const string TestAsphaltMapId = "test_asphalt_01";
+        public const string TestAsphaltLocation = "Испытательная трасса";
         public static readonly string[] PlayerScenes =
         {
             "Assets/MadMachines/Scenes/FrontEnd.unity",
             "Assets/MadMachines/Scenes/Playground.unity",
-            "Assets/MadMachines/Networking/Scenes/NetworkSandbox.unity"
+            "Assets/MadMachines/Networking/Scenes/NetworkSandbox.unity",
+            TestAsphaltScenePath
         };
         private static GameFlow instance;
         private static readonly List<VehicleDefinition> catalog = new List<VehicleDefinition>();

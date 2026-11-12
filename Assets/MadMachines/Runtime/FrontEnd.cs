@@ -18,6 +18,7 @@ namespace MadMachines
         private VehicleDefinition draftVehicle;
         private VehicleDrive draftDrive;
         private bool online;
+        private bool testAsphalt;
         private bool rotate = true;
         private ChallengeMode mode;
         private ChallengeMode statisticsMode = ChallengeMode.Race;
@@ -39,6 +40,7 @@ namespace MadMachines
             GameFlow.RegisterVehicles(vehicle, vehicles);
             mode = (ChallengeMode)Mathf.Clamp(PlayerPrefs.GetInt("MadMachines.Garage.Mode.v1", 0), 0, 3);
             online = PlayerPrefs.GetInt("MadMachines.Main.Online.v1", 0) != 0;
+            testAsphalt = PlayerPrefs.GetInt("MadMachines.Main.TestAsphalt.v1", 0) != 0;
             address = PlayerPrefs.GetString("MadMachines.Server.Address.v1", "127.0.0.1");
             port = PlayerPrefs.GetString("MadMachines.Server.Port.v1", "7777");
             CreateStage();
@@ -178,11 +180,17 @@ namespace MadMachines
         {
             bool interactable = GUI.enabled;
             GUILayout.Label("КАРТА", label);
-            GUILayout.Label("Полигон", label);
+            testAsphalt = GUILayout.Toolbar(testAsphalt ? 1 : 0,
+                new[] { "Полигон", GameFlow.TestAsphaltLocation }, button) == 1;
             GUILayout.Label("РЕЖИМ", label);
-            foreach (ChallengeMode choice in new[] { ChallengeMode.Free, ChallengeMode.Race, ChallengeMode.Shooting, ChallengeMode.Combat })
-                if (GUILayout.Toggle(mode == choice, PlaygroundText.ModeName(choice), button)) mode = choice;
-            string rules = mode switch
+            if (testAsphalt) GUILayout.Label(PlaygroundText.ModeName(ChallengeMode.Free), label);
+            else
+            {
+                foreach (ChallengeMode choice in new[] { ChallengeMode.Free, ChallengeMode.Race, ChallengeMode.Shooting, ChallengeMode.Combat })
+                    if (GUILayout.Toggle(mode == choice, PlaygroundText.ModeName(choice), button)) mode = choice;
+            }
+            ChallengeMode launchMode = testAsphalt ? ChallengeMode.Free : mode;
+            string rules = launchMode switch
             {
                 ChallengeMode.Race => "Пройдите ворота по порядку. Меньшее время лучше. Восстановление: +3 с.",
                 ChallengeMode.Shooting => "60 с на цели: 100 очков за обычную, 200 за движущуюся. Больше очков лучше.",
@@ -194,7 +202,7 @@ namespace MadMachines
             if (GUILayout.Button("ИГРАТЬ", button))
             {
                 SaveLaunch();
-                GameFlow.StartLocal("Playground", mode);
+                GameFlow.StartLocal(testAsphalt ? GameFlow.TestAsphaltScene : "Playground", launchMode);
             }
             GUI.enabled = interactable;
         }
@@ -240,6 +248,7 @@ namespace MadMachines
         private void SaveLaunch()
         {
             PlayerPrefs.SetInt("MadMachines.Main.Online.v1", online ? 1 : 0);
+            PlayerPrefs.SetInt("MadMachines.Main.TestAsphalt.v1", testAsphalt ? 1 : 0);
             PlayerPrefs.SetInt("MadMachines.Garage.Mode.v1", (int)mode);
             PlayerPrefs.SetString("MadMachines.Server.Address.v1", address);
             PlayerPrefs.SetString("MadMachines.Server.Port.v1", port);
