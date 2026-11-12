@@ -8,8 +8,8 @@ namespace MadMachines
     {
         private IEnumerator Start()
         {
-            // The direct scene launch normally waits for the main menu to choose a mode.
-            // Start after camera, rules, and input have initialized.
+            if (GameFlow.LocalLaunchPending) yield break;
+            // Direct launches start after camera, rules, and input have initialized.
             yield return null;
             LocalPlayerInput input = GetComponent<LocalPlayerInput>();
             if (input.isActiveAndEnabled) input.Begin(ChallengeMode.Free);

@@ -9,16 +9,16 @@ EditorBuildSettings:
     path: Assets/MadMachines/Scenes/FrontEnd.unity
     guid: 9d339a05c89e48ea8cdd1baa73e7eb8d
   - enabled: 1
-    path: Assets/MadMachines/Scenes/Playground.unity
-    guid: 1a9ffe4e0e2a29149b7c76ca201ac6f0
-  - enabled: 1
     path: Assets/MadMachines/Networking/Scenes/NetworkSandbox.unity
     guid: 3237a714ba28fb14289f157d98924b70
   - enabled: 1
-    path: Assets/MadMachines/Scenes/Test_Asphalt_01.unity
+    path: Assets/MadMachines/Scenes/Location_AsphaltTrack.unity
     guid: 3151018e6d25570782ba1b89ce7a8c70
   - enabled: 1
-    path: Assets/MadMachines/Scenes/ShootingRange_01.unity
+    path: Assets/MadMachines/Scenes/Location_DirtTrack.unity
+    guid: dd92b970693c540489ec7ee82b18eed2
+  - enabled: 1
+    path: Assets/MadMachines/Scenes/Location_ShootingRange.unity
     guid: 62546369c03445059264399baf4c3cbf
   - enabled: 1
     path: Assets/MadMachines/Scenes/Map_01_ThreeRoads.unity

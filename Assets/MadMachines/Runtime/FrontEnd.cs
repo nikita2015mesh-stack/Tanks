@@ -6,10 +6,10 @@ namespace MadMachines
 {
     public sealed class FrontEnd : MonoBehaviour
     {
-        private enum Page { Main, Garage, Statistics }
+        private enum Page { Main, Garage }
         private enum Dialog { None, GarageChanges, Quit }
-        private static readonly string[] LocalMapScenes = { "Playground", GameFlow.TestAsphaltScene, GameFlow.ShootingRangeScene };
-        private static readonly string[] LocalMapNames = { "Полигон", GameFlow.TestAsphaltLocation, GameFlow.ShootingRangeLocation };
+        private static readonly string[] LocalMapScenes = { GameFlow.AsphaltTrackScene, GameFlow.DirtTrackScene, GameFlow.ShootingRangeScene };
+        private static readonly string[] LocalMapNames = { GameFlow.AsphaltTrackLocation, GameFlow.DirtTrackLocation, GameFlow.ShootingRangeLocation };
         private const string LocalMapKey = "MadMachines.Main.LocalMap.v1";
         private static readonly string[] DriveNames = { "Полный", "Передний", "Задний" };
         [SerializeField] private VehicleDefinition vehicle;
@@ -20,11 +20,8 @@ namespace MadMachines
         private Dialog dialog;
         private VehicleDefinition draftVehicle;
         private VehicleDrive draftDrive;
-        private bool online;
         private int localMap;
         private bool rotate = true;
-        private ChallengeMode mode;
-        private ChallengeMode statisticsMode = ChallengeMode.Race;
         private string address;
         private string port;
         private string queriedAddress;
@@ -41,14 +38,14 @@ namespace MadMachines
         private void Awake()
         {
             GameFlow.RegisterVehicles(vehicle, vehicles);
-            mode = (ChallengeMode)Mathf.Clamp(PlayerPrefs.GetInt("MadMachines.Garage.Mode.v1", 0), 0, 3);
-            online = PlayerPrefs.GetInt("MadMachines.Main.Online.v1", 0) != 0;
-            string previousMap = PlayerPrefs.GetInt("MadMachines.Main.TestAsphalt.v1", 0) != 0 ? GameFlow.TestAsphaltScene : "Playground";
-            localMap = Mathf.Max(0, System.Array.IndexOf(LocalMapScenes, PlayerPrefs.GetString(LocalMapKey, previousMap)));
+            string previousMap = PlayerPrefs.GetString(LocalMapKey, GameFlow.AsphaltTrackScene);
+            if (previousMap == "ShootingRange_01") previousMap = GameFlow.ShootingRangeScene;
+            localMap = Mathf.Max(0, System.Array.IndexOf(LocalMapScenes, previousMap));
             address = PlayerPrefs.GetString("MadMachines.Server.Address.v1", "127.0.0.1");
             port = PlayerPrefs.GetString("MadMachines.Server.Port.v1", "7777");
             CreateStage();
             BuildPreview(GameFlow.CurrentVehicle);
+            if (GameFlow.ConsumeGarageReturn()) OpenGarage();
         }
 
         private void CreateStage()
@@ -120,7 +117,6 @@ namespace MadMachines
             if (dialog != Dialog.None) dialog = Dialog.None;
             else if (settings.IsOpen) settings.Close();
             else if (page == Page.Garage) LeaveGarage();
-            else if (page == Page.Statistics) page = Page.Main;
             else dialog = Dialog.Quit;
         }
 
@@ -140,7 +136,6 @@ namespace MadMachines
             GUILayout.Label("БЕЗУМНЫЕ МАШИНЫ", heading);
             if (settings.IsOpen) settings.Draw();
             else if (page == Page.Garage) DrawGarage();
-            else if (page == Page.Statistics) DrawStatistics();
             else DrawMain();
             GUILayout.EndScrollView();
             GUILayout.EndArea();
@@ -164,50 +159,20 @@ namespace MadMachines
             GUILayout.Label("Привод: " + DriveNames[(int)GameFlow.SelectedDrive - 1], label);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("ГАРАЖ", button)) OpenGarage();
-            if (GUILayout.Button("СТАТИСТИКА", button)) page = Page.Statistics;
             if (GUILayout.Button("НАСТРОЙКИ", button)) settings.Open();
             GUILayout.EndHorizontal();
-            if (!string.IsNullOrEmpty(GameFlow.Notice))
-            {
-                GUILayout.Label(GameFlow.Notice, label);
-                if (GUILayout.Button("ЗАКРЫТЬ СООБЩЕНИЕ")) GameFlow.ClearNotice();
-            }
+            DrawNotice();
             GUILayout.Space(8);
-            online = GUILayout.Toolbar(online ? 1 : 0, new[] { "ОДИНОЧНАЯ", "ПО СЕТИ" }, button) == 1;
-            if (online) DrawOnline();
-            else DrawLocal();
+            DrawOnline();
             GUILayout.Space(8);
             if (GUILayout.Button("ВЫХОД", button)) dialog = Dialog.Quit;
         }
 
-        private void DrawLocal()
+        private void DrawNotice()
         {
-            bool interactable = GUI.enabled;
-            GUILayout.Label("КАРТА", label);
-            localMap = GUILayout.SelectionGrid(localMap, LocalMapNames, 1, button);
-            GUILayout.Label("РЕЖИМ", label);
-            if (localMap != 0) GUILayout.Label(PlaygroundText.ModeName(ChallengeMode.Free), label);
-            else
-            {
-                foreach (ChallengeMode choice in new[] { ChallengeMode.Free, ChallengeMode.Race, ChallengeMode.Shooting, ChallengeMode.Combat })
-                    if (GUILayout.Toggle(mode == choice, PlaygroundText.ModeName(choice), button)) mode = choice;
-            }
-            ChallengeMode launchMode = localMap == 0 ? mode : ChallengeMode.Free;
-            string rules = launchMode switch
-            {
-                ChallengeMode.Race => "Пройдите ворота по порядку. Меньшее время лучше. Восстановление: +3 с.",
-                ChallengeMode.Shooting => "60 с на цели: 100 очков за обычную, 200 за движущуюся. Больше очков лучше.",
-                ChallengeMode.Combat => "Ворота и цели. Оставшаяся цель: +8 с, промах: +0,25 с, восстановление: +3 с.",
-                _ => "Исследуйте карту, опробуйте машину и оружие без ограничения времени."
-            };
-            GUILayout.Label(rules, label);
-            GUI.enabled = interactable && GameFlow.CurrentVehicle != null;
-            if (GUILayout.Button("ИГРАТЬ", button))
-            {
-                SaveLaunch();
-                GameFlow.StartLocal(LocalMapScenes[localMap], launchMode);
-            }
-            GUI.enabled = interactable;
+            if (string.IsNullOrEmpty(GameFlow.Notice)) return;
+            GUILayout.Label(GameFlow.Notice, label);
+            if (GUILayout.Button("ЗАКРЫТЬ СООБЩЕНИЕ")) GameFlow.ClearNotice();
         }
 
         private void DrawOnline()
@@ -240,23 +205,14 @@ namespace MadMachines
                 GUI.enabled = interactable && info.Supported && info.joinable && correctVehicle;
                 if (GUILayout.Button("ИГРАТЬ", button))
                 {
-                    SaveLaunch();
+                    PlayerPrefs.SetString("MadMachines.Server.Address.v1", address);
+                    PlayerPrefs.SetString("MadMachines.Server.Port.v1", port);
+                    PlayerPrefs.Save();
                     GameFlow.StartOnline(info.Scene, queriedAddress, queriedPort);
                 }
             }
             else if (info != null) GUILayout.Label("Обновите сведения для выбранного адреса.", label);
             GUI.enabled = interactable;
-        }
-
-        private void SaveLaunch()
-        {
-            PlayerPrefs.SetInt("MadMachines.Main.Online.v1", online ? 1 : 0);
-            PlayerPrefs.SetString(LocalMapKey, LocalMapScenes[localMap]);
-            PlayerPrefs.SetInt("MadMachines.Main.TestAsphalt.v1", localMap == 1 ? 1 : 0);
-            PlayerPrefs.SetInt("MadMachines.Garage.Mode.v1", (int)mode);
-            PlayerPrefs.SetString("MadMachines.Server.Address.v1", address);
-            PlayerPrefs.SetString("MadMachines.Server.Port.v1", port);
-            PlayerPrefs.Save();
         }
 
         private void OpenGarage()
@@ -272,6 +228,7 @@ namespace MadMachines
         {
             bool interactable = GUI.enabled;
             GUILayout.Label("ГАРАЖ", heading);
+            DrawNotice();
             foreach (VehicleDefinition definition in GameFlow.Vehicles)
             {
                 if (GUILayout.Toggle(draftVehicle == definition, definition.DisplayName, button) && draftVehicle != definition)
@@ -289,7 +246,26 @@ namespace MadMachines
             GUI.enabled = interactable;
             if (GUILayout.Button("СБРОСИТЬ НАСТРОЙКИ", button) && draftVehicle != null)
                 draftDrive = draftVehicle.Prefab.DriveMode == VehicleDrive.Configured ? VehicleDrive.All : draftVehicle.Prefab.DriveMode;
+            GUILayout.Space(8);
+            DrawTestDrive();
             if (GUILayout.Button("НА ГЛАВНЫЙ", button)) LeaveGarage();
+        }
+
+        private void DrawTestDrive()
+        {
+            bool interactable = GUI.enabled;
+            GUILayout.Label("ПРОБНЫЙ ЗАЕЗД", label);
+            localMap = GUILayout.SelectionGrid(localMap, LocalMapNames, 1, button);
+            GUI.enabled = interactable && draftVehicle != null;
+            if (GUILayout.Button(Dirty ? "ПРИМЕНИТЬ И ВЫЕХАТЬ" : "ВЫЕХАТЬ", button))
+            {
+                if (Dirty) ApplyGarage();
+                string scene = LocalMapScenes[localMap];
+                PlayerPrefs.SetString(LocalMapKey, scene);
+                PlayerPrefs.Save();
+                GameFlow.StartLocal(scene, ChallengeMode.Free, fromGarage: true);
+            }
+            GUI.enabled = interactable;
         }
 
         private void ApplyGarage() => GameFlow.ApplyVehicle(draftVehicle, draftDrive);
@@ -305,21 +281,6 @@ namespace MadMachines
             page = Page.Main;
             dialog = Dialog.None;
             BuildPreview(GameFlow.CurrentVehicle);
-        }
-
-        private void DrawStatistics()
-        {
-            GUILayout.Label("СТАТИСТИКА ИГРОКА", heading);
-            GUILayout.Label("Сохранённые личные результаты", label);
-            GUILayout.Label("Полигон", label);
-            foreach (ChallengeMode choice in new[] { ChallengeMode.Race, ChallengeMode.Shooting, ChallengeMode.Combat })
-                if (GUILayout.Toggle(statisticsMode == choice, PlaygroundText.ModeName(choice), button)) statisticsMode = choice;
-            var records = LocalRecords.Read(statisticsMode);
-            if (records.Count == 0) GUILayout.Label("Результатов пока нет", label);
-            for (int i = 0; i < records.Count; i++)
-                GUILayout.Label($"{i + 1}. " + (statisticsMode == ChallengeMode.Shooting ? $"{records[i]:0} очк." : PlaygroundText.Seconds(records[i])), label);
-            GUILayout.Label("Локальный топ-5. Сетевые результаты здесь не учитываются.", label);
-            if (GUILayout.Button("НА ГЛАВНЫЙ", button)) page = Page.Main;
         }
 
         private void DrawDialog()

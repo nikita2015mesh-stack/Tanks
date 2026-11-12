@@ -163,7 +163,7 @@ namespace MadMachines.Networking
                     gameObject.AddComponent<NetworkClientView>().Configure(this);
                     if (Mode == NetworkConnectionMode.Offline)
                     {
-                        Status = "Автоподключение выключено. Для одиночной игры откройте Playground.";
+                        Status = "Автоподключение выключено. Пробный заезд можно запустить из гаража.";
                     }
                     else
                     {

@@ -313,7 +313,7 @@ MonoBehaviour:
   vehicle: {fileID: 0}
   weapons: {fileID: 0}
   rules: {fileID: 0}
-  locationName: Стрелковый полигон
+  locationName: Стрельбище
 --- !u!114 &595712282
 MonoBehaviour:
   m_ObjectHideFlags: 0

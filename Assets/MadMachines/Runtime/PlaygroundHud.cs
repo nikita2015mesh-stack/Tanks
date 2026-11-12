@@ -68,6 +68,7 @@ namespace MadMachines
                 GUILayout.Label(string.IsNullOrEmpty(locationName) ? PlaygroundText.Subtitle : locationName, small);
                 GUILayout.Space(14);
                 bool hasMain = Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene);
+                string returnLabel = !hasMain ? "В МЕНЮ" : GameFlow.GarageTestActive ? "В ГАРАЖ" : "НА ГЛАВНЫЙ";
                 if (settings.IsOpen) settings.Draw();
                 else if (confirmExit)
                 {
@@ -82,7 +83,7 @@ namespace MadMachines
                     GUILayout.Label(rules.ResultDetail, text);
                     var records = LocalRecords.Read(rules.Mode, rules.TrackId);
                     if (records.Count > 0) GUILayout.Label("Лучший результат: " + FormatResult(records[0]), text);
-                    if (GUILayout.Button(hasMain ? "НА ГЛАВНЫЙ" : "В МЕНЮ", button)) input.OpenMenu();
+                    if (GUILayout.Button(returnLabel, button)) input.OpenMenu();
                     if (!hasMain && GUILayout.Button("ПОВТОРИТЬ", button)) input.Begin(rules.Mode);
                 }
                 else if (input.Paused)
@@ -90,7 +91,7 @@ namespace MadMachines
                     GUILayout.Label("ПАУЗА", title);
                     if (GUILayout.Button("ПРОДОЛЖИТЬ", button)) input.Resume();
                     if (GUILayout.Button("НАСТРОЙКИ", button)) settings.Open();
-                    if (GUILayout.Button(hasMain ? "НА ГЛАВНЫЙ" : "В МЕНЮ", button))
+                    if (GUILayout.Button(returnLabel, button))
                     {
                         if (rules.Mode != ChallengeMode.Free) confirmExit = true;
                         else input.OpenMenu();
@@ -99,7 +100,7 @@ namespace MadMachines
                 }
                 else if (hasMain)
                 {
-                    GUILayout.Label("Для выбора машины и запуска заезда откройте главный экран.", text);
+                    GUILayout.Label("Пробный заезд можно запустить из гаража.", text);
                     if (GUILayout.Button("НА ГЛАВНЫЙ", button)) input.OpenMenu();
                 }
                 else

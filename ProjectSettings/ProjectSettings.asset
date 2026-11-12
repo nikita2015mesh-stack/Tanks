@@ -265,7 +265,7 @@ PlayerSettings:
   shaderPrecisionModel: 0
   clonedFromGUID: 3c72c65a16f0acb438eed22b8b16c24a
   templatePackageId: com.unity.template.urp-blank@17.2.6
-  templateDefaultScene: Assets/MadMachines/Scenes/Playground.unity
+  templateDefaultScene: Assets/MadMachines/Scenes/FrontEnd.unity
   useCustomMainManifest: 0
   useCustomLauncherManifest: 0
   useCustomMainGradleTemplate: 0

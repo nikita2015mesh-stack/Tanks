@@ -27,7 +27,7 @@ namespace MadMachines.Networking
         public string Scene => mapId switch
         {
             "sandbox" => "NetworkSandbox",
-            GameFlow.TestAsphaltMapId => GameFlow.TestAsphaltScene,
+            GameFlow.AsphaltTrackMapId => GameFlow.AsphaltTrackScene,
             GameFlow.ThreeRoadsMapId => GameFlow.ThreeRoadsScene,
             _ => null
         };

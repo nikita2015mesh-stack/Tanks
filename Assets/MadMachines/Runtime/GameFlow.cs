@@ -10,13 +10,16 @@ namespace MadMachines
     public sealed class GameFlow : MonoBehaviour
     {
         public const string FrontEndScene = "FrontEnd";
-        public const string TestAsphaltScene = "Test_Asphalt_01";
-        public const string TestAsphaltScenePath = "Assets/MadMachines/Scenes/" + TestAsphaltScene + ".unity";
-        public const string TestAsphaltMapId = "test_asphalt_01";
-        public const string TestAsphaltLocation = "Испытательная трасса";
-        public const string ShootingRangeScene = "ShootingRange_01";
+        public const string AsphaltTrackScene = "Location_AsphaltTrack";
+        public const string AsphaltTrackScenePath = "Assets/MadMachines/Scenes/" + AsphaltTrackScene + ".unity";
+        public const string AsphaltTrackMapId = "test_asphalt_01";
+        public const string AsphaltTrackLocation = "Полигон — асфальтовая трасса";
+        public const string DirtTrackScene = "Location_DirtTrack";
+        public const string DirtTrackScenePath = "Assets/MadMachines/Scenes/" + DirtTrackScene + ".unity";
+        public const string DirtTrackLocation = "Полигон — грунтовая трасса";
+        public const string ShootingRangeScene = "Location_ShootingRange";
         public const string ShootingRangeScenePath = "Assets/MadMachines/Scenes/" + ShootingRangeScene + ".unity";
-        public const string ShootingRangeLocation = "Стрелковый полигон";
+        public const string ShootingRangeLocation = "Стрельбище";
         public const string ThreeRoadsScene = "Map_01_ThreeRoads";
         public const string ThreeRoadsScenePath = "Assets/MadMachines/Scenes/" + ThreeRoadsScene + ".unity";
         public const string ThreeRoadsMapId = "three_roads_01";
@@ -24,9 +27,9 @@ namespace MadMachines
         public static readonly string[] PlayerScenes =
         {
             "Assets/MadMachines/Scenes/FrontEnd.unity",
-            "Assets/MadMachines/Scenes/Playground.unity",
             "Assets/MadMachines/Networking/Scenes/NetworkSandbox.unity",
-            TestAsphaltScenePath,
+            AsphaltTrackScenePath,
+            DirtTrackScenePath,
             ShootingRangeScenePath,
             ThreeRoadsScenePath
         };
@@ -36,6 +39,7 @@ namespace MadMachines
         public static VehicleDefinition CurrentVehicle { get; private set; }
         public static bool LocalLaunchPending { get; private set; }
         public static bool OnlineLaunchPending { get; private set; }
+        public static bool GarageTestActive { get; private set; }
         public static ChallengeMode LocalMode { get; private set; }
         public static string ServerAddress { get; private set; }
         public static ushort ServerPort { get; private set; }
@@ -57,7 +61,7 @@ namespace MadMachines
             instance = null;
             catalog.Clear();
             CurrentVehicle = null;
-            LocalLaunchPending = OnlineLaunchPending = false;
+            LocalLaunchPending = OnlineLaunchPending = GarageTestActive = false;
             SelectedDrive = VehicleDrive.All;
             ServerAddress = Notice = null;
             ServerPort = 0;
@@ -111,17 +115,25 @@ namespace MadMachines
         public static void SelectDrive(VehicleDrive drive) => ApplyVehicle(CurrentVehicle, drive);
         public static void ClearNotice() => Notice = null;
 
-        public static void StartLocal(string scene, ChallengeMode mode)
+        public static void StartLocal(string scene, ChallengeMode mode, bool fromGarage = false)
         {
             Initialize();
             if (Loading || CurrentVehicle == null) return;
             LocalLaunchPending = true;
             OnlineLaunchPending = false;
+            GarageTestActive = fromGarage;
             LocalMode = mode;
             instance.StartCoroutine(instance.Load(scene, false));
         }
 
         public static void ConsumeLocalLaunch() => LocalLaunchPending = false;
+
+        public static bool ConsumeGarageReturn()
+        {
+            bool openGarage = GarageTestActive;
+            GarageTestActive = false;
+            return openGarage;
+        }
 
         public static void StartOnline(string scene, string address, ushort port)
         {
@@ -129,20 +141,24 @@ namespace MadMachines
             if (Loading || CurrentVehicle == null) return;
             LocalLaunchPending = false;
             OnlineLaunchPending = true;
+            GarageTestActive = false;
             ServerAddress = address;
             ServerPort = port;
             instance.StartCoroutine(instance.Load(scene, true));
         }
 
-        public static void ReturnToMain()
+        public static void ReturnToMain() => ReturnToFrontEnd(false);
+
+        public static void ReturnToGarage() => ReturnToFrontEnd(true);
+
+        private static void ReturnToFrontEnd(bool openGarage)
         {
             Initialize();
             if (Loading) return;
             LocalLaunchPending = OnlineLaunchPending = false;
+            GarageTestActive = openGarage;
             instance.StartCoroutine(instance.Load(FrontEndScene, false));
         }
-
-        public static void ReturnToGarage() => ReturnToMain();
 
         private IEnumerator Load(string scene, bool online)
         {
@@ -160,6 +176,7 @@ namespace MadMachines
             {
                 Notice = "Карта отсутствует в этой сборке игры.";
                 LocalLaunchPending = OnlineLaunchPending = loading = false;
+                GarageTestActive = false;
                 yield break;
             }
             AsyncOperation operation = SceneManager.LoadSceneAsync(scene, LoadSceneMode.Single);
@@ -190,7 +207,7 @@ namespace MadMachines
             }
             if (cancel && scene != FrontEndScene)
             {
-                message = "Возвращаемся на главный…";
+                message = GarageTestActive ? "Возвращаемся в гараж…" : "Возвращаемся на главный…";
                 if (session != null)
                 {
                     session.Disconnect();

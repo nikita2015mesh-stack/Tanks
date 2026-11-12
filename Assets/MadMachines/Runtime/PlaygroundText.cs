@@ -6,7 +6,6 @@ namespace MadMachines
     {
         public const string Title = "БЕЗУМНЫЕ МАШИНЫ";
         public const string Subtitle = "ФИЗИЧЕСКИЙ ПОЛИГОН";
-        public const string MovingTarget = "200 / ДВИЖЕТСЯ";
 
         private static readonly CultureInfo RussianCulture = CultureInfo.GetCultureInfo("ru-RU");
 

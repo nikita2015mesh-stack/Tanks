@@ -60,7 +60,8 @@ namespace MadMachines
         {
             if (UnityEngine.Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene))
             {
-                GameFlow.ReturnToMain();
+                if (GameFlow.GarageTestActive) GameFlow.ReturnToGarage();
+                else GameFlow.ReturnToMain();
                 return;
             }
             Menu = true;

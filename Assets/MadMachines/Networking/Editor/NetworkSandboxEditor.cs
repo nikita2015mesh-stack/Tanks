@@ -17,6 +17,7 @@ namespace MadMachines.Networking.Editor
         private const string Generated = Root + "/Generated";
         private const string VehicleDefinitionPath = "Assets/MadMachines/Vehicles/T100.asset";
         private const string CannonDefinitionPath = "Assets/MadMachines/Generated/Ballisticcannon.asset";
+        private const string AsphaltBuildName = "Test_Asphalt_01";
         public const string ScenePath = Root + "/Scenes/NetworkSandbox.unity";
 
         [MenuItem("Tools/Mad Machines/Networking/Create or open sandbox")]
@@ -234,13 +235,13 @@ namespace MadMachines.Networking.Editor
         public static void BuildLinuxServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
             NetworkBuildOutput.LinuxServer, NetworkBuildOutput.LinuxServerExecutable);
 
-        [MenuItem("Tools/Mad Machines/Networking/Испытательная трасса/Собрать сервер Windows")]
+        [MenuItem("Tools/Mad Machines/Networking/" + GameFlow.AsphaltTrackLocation + "/Собрать сервер Windows")]
         public static void BuildWindowsTestAsphaltServer() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Server,
-            GameFlow.TestAsphaltScene + "-WindowsServer", NetworkBuildOutput.WindowsServerExecutable, GameFlow.TestAsphaltScenePath);
+            AsphaltBuildName + "-WindowsServer", NetworkBuildOutput.WindowsServerExecutable, GameFlow.AsphaltTrackScenePath);
 
-        [MenuItem("Tools/Mad Machines/Networking/Испытательная трасса/Собрать сервер Linux")]
+        [MenuItem("Tools/Mad Machines/Networking/" + GameFlow.AsphaltTrackLocation + "/Собрать сервер Linux")]
         public static void BuildLinuxTestAsphaltServer() => Build(BuildTarget.StandaloneLinux64, StandaloneBuildSubtarget.Server,
-            GameFlow.TestAsphaltScene + "-LinuxServer", NetworkBuildOutput.LinuxServerExecutable, GameFlow.TestAsphaltScenePath);
+            AsphaltBuildName + "-LinuxServer", NetworkBuildOutput.LinuxServerExecutable, GameFlow.AsphaltTrackScenePath);
 
         [MenuItem("Tools/Mad Machines/Networking/" + GameFlow.ThreeRoadsLocation + "/Собрать сервер Windows")]
         public static void BuildWindowsThreeRoadsServer() => Build(BuildTarget.StandaloneWindows64, StandaloneBuildSubtarget.Server,
@@ -303,7 +304,7 @@ namespace MadMachines.Networking.Editor
             try
             {
                 NetworkSandboxSession session = null;
-                bool routedSession = path == GameFlow.TestAsphaltScenePath;
+                bool routedSession = path == GameFlow.AsphaltTrackScenePath;
                 bool inspectInactiveCameras = !routedSession;
                 foreach (GameObject root in scene.GetRootGameObjects())
                 {

@@ -11,8 +11,9 @@ namespace MadMachines
         {
             public List<float> Values = new List<float>();
         }
-        public static List<float> Read(ChallengeMode mode, string trackId = null)
+        public static List<float> Read(ChallengeMode mode, string trackId)
         {
+            if (string.IsNullOrEmpty(trackId)) return new List<float>();
             try
             {
                 return JsonUtility.FromJson<Entries>(PlayerPrefs.GetString(Key(mode, trackId), "{}"))?.Values ?? new List<float>();
@@ -23,8 +24,9 @@ namespace MadMachines
             }
         }
 
-        public static void Save(ChallengeMode mode, float value, string trackId = null)
+        public static void Save(ChallengeMode mode, float value, string trackId)
         {
+            if (string.IsNullOrEmpty(trackId)) return;
             List<float> values = Read(mode, trackId);
             values.Add(value);
             values.Sort((a, b) => mode == ChallengeMode.Shooting ? b.CompareTo(a) : a.CompareTo(b));
@@ -35,7 +37,7 @@ namespace MadMachines
 
         private static string Key(ChallengeMode mode, string trackId)
         {
-            return string.IsNullOrEmpty(trackId) ? "MadMachines.Records.v1." + mode : $"MadMachines.Records.v1.Tracks.{trackId}.{mode}";
+            return $"MadMachines.Records.v1.Tracks.{trackId}.{mode}";
         }
     }
 }
