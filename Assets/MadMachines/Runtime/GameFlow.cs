@@ -199,7 +199,7 @@ namespace MadMachines
             }
             // Scene Start methods initialize local input and the network manager.
             yield return null;
-            NetworkSandboxSession session = online ? FindFirstObjectByType<NetworkSandboxSession>() : null;
+            NetworkSandboxSession session = online ? FindAnyObjectByType<NetworkSandboxSession>() : null;
             if (online && !cancel)
             {
                 double deadline = Time.realtimeSinceStartupAsDouble + 30;

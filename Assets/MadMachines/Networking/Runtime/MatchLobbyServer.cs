@@ -229,7 +229,7 @@ namespace MadMachines.Networking
             Scene scene = SceneManager.GetSceneByName(GameFlow.ThreeRoadsScene);
             SceneManager.SetActiveScene(scene);
             yield return null;
-            session = FindFirstObjectByType<NetworkSandboxSession>();
+            session = FindAnyObjectByType<NetworkSandboxSession>();
             if (phase == MatchLobbyPhase.Loading && (session == null || session.Manager == null || !session.Manager.IsListening))
                 EndRound("Игровой UDP-порт не открылся.");
         }
@@ -254,7 +254,7 @@ namespace MadMachines.Networking
         {
             while (loadingMap) yield return null;
             yield return null;
-            NetworkSandboxSession active = FindFirstObjectByType<NetworkSandboxSession>();
+            NetworkSandboxSession active = FindAnyObjectByType<NetworkSandboxSession>();
             if (active != null && active.Manager != null)
             {
                 if (active.Manager.IsListening) active.Manager.Shutdown();

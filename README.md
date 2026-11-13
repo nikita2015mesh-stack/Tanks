@@ -20,7 +20,7 @@
 - [Полигон — грунтовая трасса](Assets/MadMachines/Scenes/Location_DirtTrack.unity) · [Сценарий проверки](Docs/CURRENT_STATE.md#грунтовый-полигон)
 - [Стрельбище](Assets/MadMachines/Scenes/Location_ShootingRange.unity) · [Маршрут и проверка](Docs/CURRENT_STATE.md#стрельбище)
 
-**Игра по сети** — собери сервер через **Tools → Mad Machines → Networking → Собрать сервер**. Клиент подключается в фоне. На главном дождись зелёного индикатора и нажми «В бой». Для старта «Трёх дорог» нужны две заявки. Сервер использует UDP 7777 и 7778. [Запуск и проверка](Docs/NETWORKING.md#два-компьютера-в-lan-на-mx-linux).
+**Игра по сети** — в **Tools → Mad Machines → Networking** выбери «Собрать сервер для Windows» или «Собрать сервер для Linux». Клиент подключается в фоне. На главном дождись зелёного индикатора и нажми «В бой». Для старта «Трёх дорог» нужны две заявки. Сервер использует UDP 7777 и 7778. [Запуск на Windows](Docs/NETWORKING.md#сервер-на-windows-11) · [Запуск на MX Linux](Docs/NETWORKING.md#два-компьютера-в-lan-на-mx-linux).
 
 ## Структура проекта
 

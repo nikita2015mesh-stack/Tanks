@@ -174,9 +174,9 @@ namespace MadMachines.Networking.Editor
             if (manager.IsServer)
             {
                 Require(!manager.IsHost && vehicles == manager.ConnectedClients.Count, "Dedicated Server и одна машина на клиента");
-                Require(UnityEngine.Object.FindObjectsByType<Camera>(FindObjectsSortMode.None).Length == 0 &&
-                    UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None).Length == 0 &&
-                    UnityEngine.Object.FindObjectsByType<NetworkClientView>(FindObjectsSortMode.None).Length == 0, "Сервер без камеры, звука и HUD");
+                Require(UnityEngine.Object.FindObjectsByType<Camera>().Length == 0 &&
+                    UnityEngine.Object.FindObjectsByType<AudioListener>().Length == 0 &&
+                    UnityEngine.Object.FindObjectsByType<NetworkClientView>().Length == 0, "Сервер без камеры, звука и HUD");
             }
             Debug.Log($"[MM NET CHECK] Текущий снимок согласован: машин {vehicles}, снарядов {projectiles}. Для сценария двух клиентов ожидаются две машины.");
         }
@@ -184,7 +184,7 @@ namespace MadMachines.Networking.Editor
         [MenuItem(NetworkSandboxEditor.ChecksMenu + "Send invalid commands from client")]
         public static void SendInvalidCommands()
         {
-            NetworkClientView view = UnityEngine.Object.FindFirstObjectByType<NetworkClientView>();
+            NetworkClientView view = UnityEngine.Object.FindAnyObjectByType<NetworkClientView>();
             Require(EditorApplication.isPlaying && view != null, "Нужен подключённый Editor-клиент");
             view.SendInvalidCommandProbe();
         }

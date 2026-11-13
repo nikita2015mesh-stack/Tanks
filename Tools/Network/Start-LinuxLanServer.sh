@@ -10,7 +10,7 @@ bind_address=${1:-0.0.0.0}
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 server_build=Builds/Network/Match-LinuxServer
 if [[ ! -f "$server_build/active.txt" ]]; then
-    printf 'Сначала соберите сервер в Unity: Tools → Mad Machines → Networking → Собрать сервер.\n' >&2
+    printf 'Сначала соберите сервер в Unity: Tools → Mad Machines → Networking → Собрать сервер для Linux.\n' >&2
     exit 1
 fi
 

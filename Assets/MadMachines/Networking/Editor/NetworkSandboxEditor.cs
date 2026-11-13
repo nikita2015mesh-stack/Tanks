@@ -15,31 +15,42 @@ namespace MadMachines.Networking.Editor
         private const string Menu = "Tools/Mad Machines/Networking/";
         internal const string ChecksMenu = Menu + "Проверки/";
 
-        [MenuItem(Menu + "Собрать сервер", false, 100)]
+        [MenuItem(Menu + "Собрать сервер для Windows", false, 100)]
+        public static void BuildWindowsMatchServer()
+        {
+            BuildMatchServer(BuildTarget.StandaloneWindows64, "Windows");
+        }
+
+        [MenuItem(Menu + "Собрать сервер для Linux", false, 101)]
         public static void BuildLinuxMatchServer()
+        {
+            BuildMatchServer(BuildTarget.StandaloneLinux64, "Linux");
+        }
+
+        private static void BuildMatchServer(BuildTarget target, string platform)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 throw new BuildFailedException("Остановите Play Mode перед сборкой.");
             if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
-            if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, BuildTarget.StandaloneLinux64))
-                throw new BuildFailedException("Установите через Unity Hub модуль Linux Dedicated Server Build Support.");
+            if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target))
+                throw new BuildFailedException($"Установите через Unity Hub модуль {platform} Dedicated Server Build Support.");
 
             ValidateScene(GameFlow.ThreeRoadsScenePath);
             // Publish only a successful build. The previous build can still be running.
             string id = Guid.NewGuid().ToString("N");
-            string output = NetworkBuildOutput.GetBuildPath(id);
+            string output = NetworkBuildOutput.GetBuildPath(target, id);
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = new[] { GameFlow.FrontEndScenePath, GameFlow.ThreeRoadsScenePath },
                 locationPathName = output,
-                target = BuildTarget.StandaloneLinux64,
+                target = target,
                 subtarget = (int)StandaloneBuildSubtarget.Server,
                 options = BuildOptions.None
             });
             if (report.summary.result != BuildResult.Succeeded || !File.Exists(output))
-                throw new BuildFailedException($"Сборка сервера: {report.summary.result}. Проверьте Editor.log и модули Linux.");
-            NetworkBuildOutput.Publish(id);
+                throw new BuildFailedException($"Сборка сервера для {platform}: {report.summary.result}. Подробности в Editor.log.");
+            NetworkBuildOutput.Publish(target, id);
             Debug.Log("[MM NET] Опубликована сборка: " + output);
         }
 

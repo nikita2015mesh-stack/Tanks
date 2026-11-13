@@ -101,7 +101,7 @@ namespace MadMachines.Networking
                     throw new InvalidOperationException("A NetworkManager already exists. Open only one network scene and restart Play Mode.");
                 previousFixedDeltaTime = Time.fixedDeltaTime;
                 previousTimeScale = Time.timeScale;
-                previousTargetFrameRate = Application.targetFrameRate;
+                if (IsServerProcess) previousTargetFrameRate = Application.targetFrameRate;
                 previousRunInBackground = Application.runInBackground;
                 changedFixedDeltaTime = true;
                 Application.runInBackground = true;
@@ -154,7 +154,7 @@ namespace MadMachines.Networking
                 {
                     Application.targetFrameRate = 60;
                     // The scene contains no camera/HUD. Server never creates either component.
-                    foreach (Light light in FindObjectsByType<Light>(FindObjectsSortMode.None)) light.enabled = false;
+                    foreach (Light light in FindObjectsByType<Light>()) light.enabled = false;
                     Transport.SetConnectionData(true, options.Address, options.Port, options.BindAddress);
                     Log($"Starting dedicated server on UDP {options.BindAddress}:{Port} (physics 50 Hz, network 30 Hz).");
                     if (!string.IsNullOrEmpty(options.StopFile) && File.Exists(options.StopFile))
@@ -580,7 +580,7 @@ namespace MadMachines.Networking
             {
                 Time.fixedDeltaTime = previousFixedDeltaTime;
                 Time.timeScale = previousTimeScale;
-                Application.targetFrameRate = previousTargetFrameRate;
+                if (IsServerProcess) Application.targetFrameRate = previousTargetFrameRate;
                 Application.runInBackground = previousRunInBackground;
             }
             if (Manager == null) return;

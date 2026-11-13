@@ -1,9 +1,32 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace MadMachines
 {
     public static class GameSettings
     {
+#if !UNITY_SERVER || UNITY_EDITOR
+        private const int FrontEndFrameRate = 30;
+        private const int GameplayFrameRate = 60;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void InitializeFrameRate()
+        {
+            if (Application.isBatchMode) return;
+
+            SceneManager.sceneLoaded -= ApplySceneFrameRate;
+            SceneManager.sceneLoaded += ApplySceneFrameRate;
+            Application.targetFrameRate = GameplayFrameRate;
+        }
+
+        private static void ApplySceneFrameRate(Scene scene, LoadSceneMode mode)
+        {
+            if (mode != LoadSceneMode.Single) return;
+
+            Application.targetFrameRate = scene.name == GameFlow.FrontEndScene ? FrontEndFrameRate : GameplayFrameRate;
+        }
+#endif
+
         public static float MouseSensitivity => Mathf.Clamp(PlayerPrefs.GetFloat("MadMachines.Settings.Mouse.v1", 1f), 0.25f, 2.5f);
         public static bool InvertMouse => PlayerPrefs.GetInt("MadMachines.Settings.InvertMouse.v1", 0) != 0;
 

@@ -2,11 +2,24 @@
 
 12 ноября 2026 года пользователь подтвердил запуск «Трёх дорог» вдвоём на двух машинах с MX Linux. Журнал сервера фиксирует две заявки, загрузку карты, создание двух машин и начало сессии `2/2`. Переподключение после обрыва и отмену при загрузке предстоит проверить отдельно.
 
+## Сервер на Windows 11
+
+1. Остановите Play Mode и выберите **Tools → Mad Machines → Networking → Собрать сервер для Windows**. Unity публикует `MadMachinesServer.exe` в `Builds/Network/Match-WindowsServer/versions/`. Если редактору не хватает поддержки Windows Server, откройте **File → Build Profiles → Add Build Profile → Windows Server** и установите предложенный модуль через Unity Hub. [Документация Unity](https://docs.unity3d.com/6000.6/Documentation/Manual/dedicated-server-build.html).
+2. Запустите последнюю опубликованную сборку из корня проекта в PowerShell.
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tools/Network/Start-WindowsLanServer.ps1
+   ```
+
+   Скрипт покажет путь к `server.log` и команду остановки для второго окна PowerShell. Дождитесь `LOBBY_READY` в журнале. По умолчанию сервер слушает все IPv4-интерфейсы. Для проверки только на этой машине добавьте `-BindAddress 127.0.0.1`.
+3. Запустите `FrontEnd` в Play Mode и укажите `127.0.0.1` и порт `7777`. Дождитесь зелёного индикатора. На втором клиенте из той же версии проекта укажите LAN-адрес Windows-машины, если он запущен на другом компьютере. Для входящих LAN-подключений серверу нужны UDP 7777 и 7778 в брандмауэре Windows.
+4. Нажмите «В бой» по очереди на обоих клиентах. После первого должно появиться `1/2`, после второго — загрузиться «Три дороги». В журнале ожидаются `SERVER_READY` и две записи `joined with vehicle`.
+
 ## Два компьютера в LAN на MX Linux
 
 На рабочей машине запускаем сервер матчей и клиент из `FrontEnd` в Unity. На соседней запускаем готовый Linux-клиент. Прогон проверяет связь, очередь и старт «Трёх дорог» вдвоём. Обратный отсчёт и результаты входят в следующий шаг [плана Deathmatch](DEATHMATCH_PLAN.md#порядок-работ).
 
-1. На рабочей машине в Unity 6000.6.8f1 соберите сервер через **Tools → Mad Machines → Networking → Собрать сервер** и клиент через **Tools → Mad Machines → Build Linux player**. Соберите их из одного состояния проекта. Для сервера нужен модуль [Linux Dedicated Server Build Support](https://docs.unity3d.com/6000.0/Documentation/Manual/dedicated-server-requirements.html).
+1. На рабочей машине в Unity 6000.6.8f1 соберите сервер через **Tools → Mad Machines → Networking → Собрать сервер для Linux** и клиент через **Tools → Mad Machines → Build Linux player**. Соберите их из одного состояния проекта. Для сервера нужен модуль [Linux Dedicated Server Build Support](https://docs.unity3d.com/6000.0/Documentation/Manual/dedicated-server-requirements.html).
 2. Из корня проекта запустите сервер.
 
    ```bash
