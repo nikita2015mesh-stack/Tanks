@@ -36,7 +36,6 @@ namespace MadMachines.Networking
         private MatchLobbyPhase phase;
         private bool loadingMap;
         private double preparationDeadline;
-        private double emptyDeadline;
         private double nextStatus;
         private double nextStopCheck;
 
@@ -92,11 +91,11 @@ namespace MadMachines.Networking
         public bool CanAdmit(Guid ticket) => (phase == MatchLobbyPhase.Loading || phase == MatchLobbyPhase.Running) && tickets.Contains(ticket);
         public bool Running => phase == MatchLobbyPhase.Running;
 
-        public void GameplayStarted()
+        public void GameplayStarted(NetworkSandboxSession activeSession)
         {
             if (phase != MatchLobbyPhase.Loading) return;
+            session = activeSession;
             phase = MatchLobbyPhase.Running;
-            emptyDeadline = 0;
             Log($"Сессия началась. Игроков {RequiredPlayers}/{RequiredPlayers}.");
         }
 
@@ -155,12 +154,20 @@ namespace MadMachines.Networking
                         Log("Клиент подключился к очереди.");
                     }
                     bool waiting = packet.ReadByte() == 1;
-                    if (phase == MatchLobbyPhase.Running && peer.Ticket == Guid.Empty && packet.Length == 18)
+                    if (packet.Length == 18)
                     {
                         var ticketBytes = new byte[16];
                         packet.ReadBytes(ticketBytes.AsSpan());
                         var ticket = new Guid(ticketBytes);
-                        if (tickets.Contains(ticket) && !peers.Exists(other => other.Ticket == ticket)) peer.Ticket = ticket;
+                        if (!tickets.Contains(ticket)) continue;
+                        if (!waiting)
+                        {
+                            PlayerLeft(ticket);
+                            continue;
+                        }
+                        if (phase == MatchLobbyPhase.Running && peer.Ticket == Guid.Empty && !peers.Exists(other => other.Ticket == ticket))
+                            peer.Ticket = ticket;
+                        if (peer.Ticket != ticket) continue;
                     }
                     if (peer.Failed)
                     {
@@ -176,12 +183,8 @@ namespace MadMachines.Networking
                 if (peer.Waiting && peer.Ticket == Guid.Empty) waitingCount++;
             if (phase == MatchLobbyPhase.Waiting && waitingCount >= RequiredPlayers) StartCoroutine(LoadMap());
             if (phase == MatchLobbyPhase.Loading && now >= preparationDeadline) EndRound("Истекло время подготовки карты.");
-            if (phase == MatchLobbyPhase.Running)
-            {
-                if (session == null || session.ActivePlayerCount > 0) emptyDeadline = 0;
-                else if (emptyDeadline == 0) emptyDeadline = now + 15;
-                else if (now >= emptyDeadline) EndRound("На карте не осталось игроков.");
-            }
+            if (phase == MatchLobbyPhase.Running && (tickets.Count == 0 || (session != null && session.ResultsExpired(now))))
+                EndRound("Сессия завершена.");
 
             if (now < nextStatus) return;
             nextStatus = now + 0.25;
@@ -205,10 +208,20 @@ namespace MadMachines.Networking
             peer.Waiting = waiting;
             Log(waiting ? "Клиент подал заявку." : "Клиент снял заявку.");
             if (waiting || peer.Ticket == Guid.Empty) return;
-            tickets.Remove(peer.Ticket);
-            peer.Ticket = Guid.Empty;
+            PlayerLeft(peer.Ticket);
+        }
+
+        public void PlayerLeft(Guid ticket)
+        {
+            if (!tickets.Remove(ticket)) return;
+            Peer peer = peers.Find(candidate => candidate.Ticket == ticket);
+            if (peer != null)
+            {
+                peer.Ticket = Guid.Empty;
+                peer.Waiting = false;
+            }
             if (phase == MatchLobbyPhase.Loading) EndRound("Участник отменил запуск.", requeue: true);
-            else if (phase == MatchLobbyPhase.Running && tickets.Count == 0) EndRound("Участники вышли.");
+            else if (phase == MatchLobbyPhase.Running && session != null) session.PlayerLeft(ticket);
         }
 
         private IEnumerator LoadMap()

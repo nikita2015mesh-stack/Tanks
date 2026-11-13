@@ -155,11 +155,11 @@ namespace MadMachines
             if (Loading && MatchTicket != Guid.Empty) instance.cancel = true;
         }
 
-        public static void ReturnToMain() => ReturnToFrontEnd(false);
+        public static void ReturnToMain(string notice = null) => ReturnToFrontEnd(false, notice);
 
         public static void ReturnToGarage() => ReturnToFrontEnd(true);
 
-        private static void ReturnToFrontEnd(bool openGarage)
+        private static void ReturnToFrontEnd(bool openGarage, string notice = null)
         {
             Initialize();
             if (Loading) return;
@@ -167,16 +167,16 @@ namespace MadMachines
             MatchTicket = Guid.Empty;
             LocalLaunchPending = false;
             GarageTestActive = openGarage;
-            instance.StartCoroutine(instance.Load(FrontEndScene, false));
+            instance.StartCoroutine(instance.Load(FrontEndScene, false, notice));
         }
 
-        private IEnumerator Load(string scene, bool online)
+        private IEnumerator Load(string scene, bool online, string notice = null)
         {
             loading = true;
             cancel = false;
             canCancel = scene != FrontEndScene;
             startedAt = Time.realtimeSinceStartupAsDouble;
-            Notice = null;
+            Notice = notice;
             message = "Загружаем карту…";
             progress = 0;
             Time.timeScale = 1f;
@@ -205,8 +205,7 @@ namespace MadMachines
                 double deadline = Time.realtimeSinceStartupAsDouble + 30;
                 while (!cancel)
                 {
-                    NetworkClientView client = session != null ? session.GetComponent<NetworkClientView>() : null;
-                    if (client != null && client.ReadyForPlay && Lobby.Phase == MatchLobbyPhase.Running) break;
+                    if (session != null && session.SessionInfo?.standings != null) break;
                     message = session?.Manager != null && session.Manager.IsConnectedClient
                         ? "Ждём готовности игроков…"
                         : session != null ? session.Status : "Не удалось подготовить подключение.";

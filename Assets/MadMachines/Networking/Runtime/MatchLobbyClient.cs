@@ -113,7 +113,7 @@ namespace MadMachines.Networking
                 driver.BeginSend(pipeline, connection, out var writer) != 0) return;
             writer.WriteByte(MatchLobbyServer.Protocol);
             writer.WriteByte(WantsMatch ? (byte)1 : (byte)0);
-            if (WantsMatch && GameFlow.MatchTicket != Guid.Empty)
+            if (GameFlow.MatchTicket != Guid.Empty)
                 foreach (byte value in GameFlow.MatchTicket.ToByteArray()) writer.WriteByte(value);
             driver.EndSend(writer);
             nextUpdate = Time.realtimeSinceStartupAsDouble + 0.5;

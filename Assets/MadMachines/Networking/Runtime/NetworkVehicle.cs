@@ -30,6 +30,7 @@ namespace MadMachines.Networking
         private bool hadFreshInput;
         private int initialSlot;
         private ulong initialController;
+        private NetworkSandboxSession match;
 
         public string CommandDiagnostics =>
             $"accepted={accepted}, rate_limited={rejected[(int)CommandRejection.Rate]}, " +
@@ -82,10 +83,18 @@ namespace MadMachines.Networking
             visuals.enabled = false;
         }
 
-        public void InitializeServer(int playerSlot, ulong clientId)
+        public void InitializeServer(int playerSlot, ulong clientId, NetworkSandboxSession deathmatch = null)
         {
             initialSlot = playerSlot;
             initialController = clientId;
+            match = deathmatch;
+        }
+
+        internal void SetController(ulong clientId)
+        {
+            controller.Value = clientId;
+            commands.Reset();
+            hadFreshInput = false;
         }
 
         public override void OnNetworkSpawn()
@@ -128,7 +137,8 @@ namespace MadMachines.Networking
             if (!IsServer) return;
             double now = Time.realtimeSinceStartupAsDouble;
             bool active = IsSpawned && isActiveAndEnabled && !NetworkManager.ShutdownInProgress &&
-                ControllerClientId != NetworkManager.ServerClientId && NetworkManager.ConnectedClients.ContainsKey(ControllerClientId);
+                ControllerClientId != NetworkManager.ServerClientId && NetworkManager.ConnectedClients.ContainsKey(ControllerClientId) &&
+                (match == null || match.CanFight(now));
             CommandRejection rejection = commands.Receive(command, now, rpcParams.Receive.SenderClientId, ControllerClientId, active);
             if (rejection == CommandRejection.None) accepted++;
             else rejected[(int)rejection]++;
@@ -139,6 +149,7 @@ namespace MadMachines.Networking
             if (!IsSpawned || !IsServer || NetworkManager.ShutdownInProgress) return;
             double now = Time.realtimeSinceStartupAsDouble;
             bool fresh = commands.Sample(now, out NetworkVehicleCommand latest);
+            fresh = fresh && (match == null || match.CanFight(now));
             if (!fresh && hadFreshInput) timeouts++;
             hadFreshInput = fresh;
             vehicle.Submit(fresh ? new VehicleCommand
@@ -233,7 +244,7 @@ namespace MadMachines.Networking
                 projectile = Instantiate(projectilePrefab, position, Quaternion.LookRotation(direction));
                 projectile.NetworkObject.Spawn(true);
                 if (!projectile.IsSpawned) throw new System.InvalidOperationException("Netcode did not spawn the projectile.");
-                projectile.Launch(this, owner, direction, shotId);
+                projectile.Launch(this, owner, direction, shotId, match);
             }
             catch (System.Exception error)
             {

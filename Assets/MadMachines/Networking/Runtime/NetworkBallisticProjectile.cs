@@ -11,6 +11,8 @@ namespace MadMachines.Networking
         [SerializeField] private WeaponDefinition definition;
         private SphereCollider projectileCollider;
         private Projectile simulation;
+        private NetworkSandboxSession match;
+        private int shooterSlot;
 
         public WeaponDefinition Definition => definition;
 
@@ -36,8 +38,10 @@ namespace MadMachines.Networking
             if (simulation != null) simulation.enabled = false;
         }
 
-        public void Launch(NetworkVehicle shooter, VehiclePhysics vehicle, Vector3 direction, int shotId)
+        public void Launch(NetworkVehicle shooter, VehiclePhysics vehicle, Vector3 direction, int shotId, NetworkSandboxSession deathmatch)
         {
+            match = deathmatch;
+            shooterSlot = shooter.Slot;
             simulation = gameObject.AddComponent<Projectile>();
             simulation.Initialize(definition, direction, vehicle, shotId, NetworkVehicle.HitLayers, Finish);
             Debug.Log($"[MM NET] Spawned projectile {NetworkObjectId} from vehicle {shooter.NetworkObjectId}.");
@@ -51,6 +55,7 @@ namespace MadMachines.Networking
             {
                 vehicle.RegisterHit();
                 Debug.Log($"[MM NET] Projectile {NetworkObjectId} hit vehicle {vehicle.NetworkObjectId}. Total hits: {vehicle.Hits}.");
+                if (match != null) match.ApplyDeathmatchHit(shooterSlot, vehicle, definition.Damage);
             }
             else if (target != null) Debug.Log($"[MM NET] Projectile {NetworkObjectId} collided with {target.name}.");
             else Debug.Log($"[MM NET] Projectile {NetworkObjectId} expired.");
