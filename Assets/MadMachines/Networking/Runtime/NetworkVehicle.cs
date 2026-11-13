@@ -13,6 +13,7 @@ namespace MadMachines.Networking
         [SerializeField] private VehicleDefinition definition;
         [SerializeField] private NetworkBallisticProjectile projectilePrefab;
         private readonly NetworkVariable<ulong> controller = new NetworkVariable<ulong>(NetworkManager.ServerClientId);
+        private readonly NetworkVariable<VehicleDrive> drive = new NetworkVariable<VehicleDrive>();
         private readonly NetworkVariable<int> slot = new NetworkVariable<int>();
         private readonly NetworkVariable<float> speed = new NetworkVariable<float>();
         private readonly NetworkVariable<int> hits = new NetworkVariable<int>();
@@ -28,6 +29,8 @@ namespace MadMachines.Networking
         private int accepted;
         private int timeouts;
         private bool hadFreshInput;
+        private uint appliedSequence;
+        private bool hasAppliedInput;
         private int initialSlot;
         private ulong initialController;
         private NetworkSandboxSession match;
@@ -38,6 +41,7 @@ namespace MadMachines.Networking
             $"wrong_sender={rejected[(int)CommandRejection.Sender]}, inactive={rejected[(int)CommandRejection.Inactive]}, timeouts={timeouts}";
 
         public ulong ControllerClientId => controller.Value;
+        internal VehicleDrive ConfirmedDrive => drive.Value;
         public bool IsLocalController => IsSpawned && IsClient && ControllerClientId == NetworkManager.LocalClientId;
         public int Slot => slot.Value;
         public int Hits => hits.Value;
@@ -95,11 +99,15 @@ namespace MadMachines.Networking
             controller.Value = clientId;
             commands.Reset();
             hadFreshInput = false;
+            appliedSequence = 0;
+            hasAppliedInput = false;
         }
 
         public override void OnNetworkSpawn()
         {
             commands.Reset();
+            appliedSequence = 0;
+            hasAppliedInput = false;
             System.Array.Clear(rejected, 0, rejected.Length);
             accepted = timeouts = 0;
             hadFreshInput = false;
@@ -113,6 +121,7 @@ namespace MadMachines.Networking
             {
                 controller.Value = initialController;
                 slot.Value = initialSlot;
+                drive.Value = vehicle.DriveMode;
             }
         }
 
@@ -152,14 +161,11 @@ namespace MadMachines.Networking
             fresh = fresh && (match == null || match.CanFight(now));
             if (!fresh && hadFreshInput) timeouts++;
             hadFreshInput = fresh;
-            vehicle.Submit(fresh ? new VehicleCommand
-            {
-                Throttle = latest.Throttle,
-                Steering = latest.Steering,
-                Handbrake = latest.Handbrake
-            } : new VehicleCommand { Handbrake = true });
+            vehicle.Submit(fresh ? latest.Movement : new VehicleCommand { Handbrake = true });
             if (fresh)
             {
+                appliedSequence = latest.Sequence;
+                hasAppliedInput = true;
                 weapons.Aim(latest.Aim);
                 if (latest.Fire && weapons.RequestFire(launcher))
                 {
@@ -200,11 +206,15 @@ namespace MadMachines.Networking
 
         internal void CapturePresentation(ref NetworkPhysicsPose pose)
         {
+            pose.ControllerClientId = ControllerClientId;
+            pose.AppliedSequence = appliedSequence;
+            pose.HasAppliedInput = hasAppliedInput;
             pose.AimAngles = weapons.AimAngles;
             for (int i = 0; i < vehicle.WheelCount; i++)
             {
                 VehicleWheelState wheel = vehicle.GetWheelVisualState(i);
                 pose.Wheels.Add(new Vector3(wheel.Extension, wheel.Steering, wheel.Rotation));
+                pose.WheelSpeeds.Add(wheel.AngularSpeed);
             }
         }
 

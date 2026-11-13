@@ -52,8 +52,10 @@ namespace MadMachines.Networking.Editor
             command.Throttle = 1;
             Require(buffer.Receive(command, 1, 1, 1, true) == CommandRejection.None, "Приём огня");
             Require(buffer.Receive(Valid(2), 1.01, 1, 1, true) == CommandRejection.None, "Следующая команда до физики");
-            Require(buffer.Sample(1.02, out command) && command.Fire && command.Throttle == 0, "Огонь сохранён, движение последнее");
-            Require(buffer.Sample(1.04, out command) && !command.Fire, "Огонь не накапливается");
+            Require(buffer.Sample(1.02, out command) && command.Fire && command.Throttle == 1 && command.Sequence == 1,
+                "Первая команда движения из пачки и сохранённый огонь");
+            Require(buffer.Sample(1.04, out command) && !command.Fire && command.Throttle == 0 && command.Sequence == 2,
+                "Следующий физический шаг получает вторую команду, огонь не накапливается");
             command = Valid(3);
             command.Throttle = float.NaN;
             Require(buffer.Receive(command, 1.2, 1, 1, true) == CommandRejection.Values, "Неверная команда не обновляет таймер");
@@ -74,6 +76,13 @@ namespace MadMachines.Networking.Editor
             buffer.ClearInput();
             Require(!buffer.Sample(4.02, out command), "Disable очищает управление");
             Require(buffer.Receive(Valid(4), 4.03, 1, 1, true) == CommandRejection.Sequence, "Disable не разрешает повтор старого номера");
+
+            buffer.Reset();
+            for (uint i = 1; i <= 6; i++) buffer.Receive(Valid(i), 5, 1, 1, true);
+            Require(buffer.Sample(5.02, out command) && command.Sequence == 3, "Избыточная пачка не копит задержку");
+            Require(buffer.Sample(5.04, out command) && command.Sequence == 4, "После пропуска старых номеров порядок сохраняется");
+            buffer.Receive(Valid(7), 5.3, 1, 1, true);
+            Require(buffer.Sample(5.31, out command) && command.Sequence == 7, "Просроченные шаги не оживают при новом вводе");
 
             const float cannonInterval = 1.15f;
             WeaponCooldown cooldown = default;
@@ -137,6 +146,55 @@ namespace MadMachines.Networking.Editor
             Debug.Log("[MM NET CHECK] Проверки команд, перезарядки, интерполяции, аргументов и протокола завершены. Сетевое соединение и PhysX проверяются отдельно.");
         }
 
+        [MenuItem(NetworkSandboxEditor.ChecksMenu + "Проверить интерполяцию снимков")]
+        public static void CheckSnapshotInterpolation()
+        {
+            // A constant-speed body sampled at 50 Hz and sent at 30 Hz has alternating 20/40 ms gaps.
+            // Interpolation must follow physical timestamps, not assume equally spaced send ticks.
+            NetworkPoseBuffer buffer = new NetworkPoseBuffer();
+            double[] times = { 1.00, 1.02, 1.06, 1.10, 1.12, 1.16, 1.20 };
+            for (int i = 0; i < times.Length; i++)
+            {
+                NetworkPhysicsPose pose = new NetworkPhysicsPose
+                {
+                    Position = Vector3.right * (float)((times[i] - 1) * 20),
+                    Rotation = Quaternion.identity,
+                    ServerTime = times[i],
+                    PhysicsStep = (ulong)Math.Round((times[i] - 1) / 0.02)
+                };
+                buffer.Push(pose);
+            }
+            Require(buffer.Sample(0.9, out NetworkPhysicsPose sample) && sample.Position == Vector3.zero &&
+                buffer.Mode == NetworkPoseSampleMode.Buffering, "До первого снимка нет экстраполяции назад");
+            for (int frame = 0; frame < 12; frame++)
+            {
+                double time = 1 + frame / 60.0;
+                Require(buffer.Sample(time, out sample) &&
+                    Mathf.Abs(sample.Position.x - (float)((time - 1) * 20)) < 0.0001f &&
+                    buffer.Mode == NetworkPoseSampleMode.Interpolating,
+                    "Равномерное движение между неравномерными физическими снимками, кадр " + frame);
+            }
+            Require(buffer.Sample(1.25, out sample) && Mathf.Abs(sample.Position.x - 4) < 0.0001f &&
+                buffer.Mode == NetworkPoseSampleMode.Holding, "Нехватка данных удерживает последнюю позу");
+            buffer.Push(new NetworkPhysicsPose { Position = Vector3.right * 6, Rotation = Quaternion.identity, ServerTime = 1.3 });
+            Require(buffer.Sample(1.26, out sample) && Mathf.Abs(sample.Position.x - 5.2f) < 0.0001f &&
+                buffer.Mode == NetworkPoseSampleMode.Interpolating, "Движение возобновляется после нехватки данных");
+            buffer.Reset();
+            Require(buffer.Count == 0 && !buffer.Sample(1.3, out _) && buffer.Mode == NetworkPoseSampleMode.Empty,
+                "Новая жизнь машины не использует прежнюю историю");
+
+            NetworkPhysicsPose from = new NetworkPhysicsPose { Rotation = Quaternion.Euler(0, 350, 0), ServerTime = 2 };
+            from.Wheels.Add(new Vector3(0.2f, -10, 350));
+            NetworkPhysicsPose to = new NetworkPhysicsPose { Rotation = Quaternion.Euler(0, 10, 0), ServerTime = 2.04 };
+            to.Wheels.Add(new Vector3(0.4f, 10, 10));
+            buffer.Push(from);
+            buffer.Push(to);
+            Require(buffer.Sample(2.02, out sample) && Quaternion.Angle(sample.Rotation, Quaternion.identity) < 0.01f &&
+                Mathf.Abs(sample.Wheels[0].x - 0.3f) < 0.0001f && Mathf.Abs(sample.Wheels[0].y) < 0.0001f &&
+                Mathf.Abs(Mathf.DeltaAngle(sample.Wheels[0].z, 0)) < 0.01f, "Кузов и опоры интерполируются вместе через 360 градусов");
+            Debug.Log("[MM NET CHECK] Проверки интерполяции снимков завершены. Порядок PlayerLoop, PhysX, сеть и камера требуют отдельной проверки в игре.");
+        }
+
         [MenuItem(NetworkSandboxEditor.ChecksMenu + "Inspect running session")]
         public static void InspectSession()
         {
@@ -162,6 +220,7 @@ namespace MadMachines.Networking.Editor
                     if (manager.IsServer)
                         Require(manager.ConnectedClients.ContainsKey(vehicle.ControllerClientId), "Управляющий клиент подключён");
                     Debug.Log($"[MM NET CHECK] Машина {item.NetworkObjectId}, клиент {vehicle.ControllerClientId}, место {vehicle.Slot + 1}: {vehicle.CommandDiagnostics}.");
+                    Debug.Log($"[MM NET SMOOTH] Машина {item.NetworkObjectId}: {item.GetComponent<NetworkPhysicsState>().SnapshotDiagnostics}.");
                 }
                 if (item.GetComponent<NetworkBallisticProjectile>() != null)
                 {

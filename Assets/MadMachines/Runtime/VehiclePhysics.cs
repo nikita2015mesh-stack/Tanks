@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace MadMachines
 {
@@ -28,6 +29,8 @@ namespace MadMachines
         [SerializeField, Min(0f)] private float tireFriction;
         [SerializeField, Min(1f)] private float gravityMultiplier = 1f;
         [SerializeField] private VehicleDrive driveMode;
+        [SerializeField, Min(0.01f)] private float steeringTurnTime = 0.32f;
+        [SerializeField, Min(0.01f)] private float steeringReturnTime = 0.20f;
         // Retained as defaults for scenes created before configurable wheels.
         [SerializeField] private float suspensionLength = 0.65f;
         [SerializeField] private float wheelRadius = 0.43f;
@@ -144,11 +147,37 @@ namespace MadMachines
 
         private void FixedUpdate()
         {
-            if (!Authority)
-            {
-                return;
-            }
+            if (Authority) Step(command, gameObject.scene.GetPhysicsScene(), Time.fixedDeltaTime);
+        }
+
+        internal void CopySimulationSettings(VehiclePhysics source, VehicleDrive drive)
+        {
+            engineForce = source.engineForce;
+            spring = source.spring;
+            damper = source.damper;
+            grip = source.grip;
+            tireFriction = source.tireFriction;
+            gravityMultiplier = source.gravityMultiplier;
+            steeringTurnTime = source.steeringTurnTime;
+            steeringReturnTime = source.steeringReturnTime;
+            wheelDefinitions = source.wheelDefinitions;
+            driveMode = drive;
             InitializeWheels();
+        }
+
+        internal void RestoreWheelState(int index, VehicleWheelState state)
+        {
+            wheelStates[index] = state;
+            previousStates[index] = state;
+        }
+
+        internal void Step(VehicleCommand command, PhysicsScene physicsScene, float step)
+        {
+            InitializeWheels();
+            Quaternion rotation = Body.rotation;
+            Vector3 up = rotation * Vector3.up;
+            Vector3 forwardAxis = rotation * Vector3.forward;
+            Matrix4x4 localToWorld = Matrix4x4.TRS(Body.position, rotation, transform.lossyScale);
             float supportTotal = 0f;
             float driveTotal = 0f;
             float brakeTotal = 0f;
@@ -171,6 +200,9 @@ namespace MadMachines
             }
 
             GroundedWheels = 0;
+            float targetSteering = Mathf.Clamp(command.Steering, -1f, 1f);
+            float steeringTime = targetSteering == 0f ? steeringReturnTime : steeringTurnTime;
+            float steeringFraction = step / Mathf.Max(0.01f, steeringTime);
             for (int i = 0; i < WheelCount; i++)
             {
                 VehicleWheel wheel = wheelDefinitions[i];
@@ -178,23 +210,26 @@ namespace MadMachines
                 previous.Rotation = Mathf.Repeat(previous.Rotation, 360f);
                 previousStates[i] = previous;
                 VehicleWheelState state = previous;
-                state.Steering = command.Steering * wheel.SteeringAngle;
-                state.Grounded = FindContact(wheel, previous.Extension, out RaycastHit hit, out float extension);
+                // Wheel steering is already part of the authoritative snapshot used for replay.
+                float fullAngle = wheel.SteeringAngle;
+                state.Steering = Mathf.MoveTowards(previous.Steering, targetSteering * fullAngle,
+                    steeringFraction * Mathf.Abs(fullAngle));
+                state.Grounded = FindContact(physicsScene, localToWorld, up, wheel, previous.Extension, out RaycastHit hit, out float extension);
                 state.Extension = extension;
                 if (state.Grounded)
                 {
                     GroundedWheels++;
-                    Vector3 origin = transform.TransformPoint(wheel.Mount);
+                    Vector3 origin = localToWorld.MultiplyPoint3x4(wheel.Mount);
                     Vector3 velocity = Body.GetPointVelocity(origin);
                     float share = supportTotal > 0f ? wheel.SupportWeight / supportTotal : 0f;
                     // Keep the original four-wheel tuning, but preserve total stiffness and grip as count changes.
                     float stiffness = spring * wheel.SpringMultiplier * share * 4f;
                     float damping = damper * wheel.DamperMultiplier * share * 4f;
                     float force = Mathf.Clamp((wheel.Travel - extension) * stiffness
-                        - Vector3.Dot(velocity, transform.up) * damping, 0f, stiffness * wheel.Travel * 2f);
-                    Body.AddForceAtPosition(transform.up * force, origin);
-                    Quaternion steering = Quaternion.AngleAxis(state.Steering, transform.up);
-                    Vector3 forward = Vector3.ProjectOnPlane(steering * transform.forward, hit.normal).normalized;
+                        - Vector3.Dot(velocity, up) * damping, 0f, stiffness * wheel.Travel * 2f);
+                    Body.AddForceAtPosition(up * force, origin);
+                    Quaternion steering = Quaternion.AngleAxis(state.Steering, up);
+                    Vector3 forward = Vector3.ProjectOnPlane(steering * forwardAxis, hit.normal).normalized;
                     Vector3 side = Vector3.Cross(hit.normal, forward);
                     float surfaceGrip = hit.collider.GetComponent<SurfaceGrip>()?.At(hit.point) ?? 1f;
                     float gripScale = wheel.GripMultiplier * surfaceGrip
@@ -211,7 +246,7 @@ namespace MadMachines
                     float longitudinalForce = drive - forwardSpeed * 45f * share * 4f;
                     if (tireFriction > 0f)
                     {
-                        float normalLoad = force * Vector3.Dot(transform.up, hit.normal);
+                        float normalLoad = force * Vector3.Dot(up, hit.normal);
                         float traction = normalLoad * tireFriction;
                         longitudinalForce = Mathf.Clamp(longitudinalForce, -traction, traction);
                         // A tire using its grip for drive or braking has less left for cornering.
@@ -223,7 +258,7 @@ namespace MadMachines
                     // Rolling presentation only; tire slip and wheel inertia are not simulated yet.
                     state.AngularSpeed = forwardSpeed / wheel.Radius * Mathf.Rad2Deg;
                 }
-                state.Rotation = previous.Rotation + state.AngularSpeed * Time.fixedDeltaTime;
+                state.Rotation = previous.Rotation + state.AngularSpeed * step;
                 wheelStates[i] = state;
             }
             Body.AddForce(-Body.linearVelocity * Body.linearVelocity.magnitude * 0.7f);
@@ -240,7 +275,8 @@ namespace MadMachines
             };
         }
 
-        private bool FindContact(VehicleWheel wheel, float previousExtension, out RaycastHit hit, out float extension)
+        private bool FindContact(PhysicsScene physicsScene, Matrix4x4 localToWorld, Vector3 up, VehicleWheel wheel,
+            float previousExtension, out RaycastHit hit, out float extension)
         {
             extension = Mathf.Clamp(previousExtension, 0f, wheel.Travel);
             hit = default;
@@ -252,10 +288,10 @@ namespace MadMachines
                 // Start above the fully compressed hub so the sphere also detects a landing
                 // whose surface is already closer than one wheel radius to the mount.
                 float castOffset = wheel.Radius;
-                Vector3 origin = transform.TransformPoint(localOrigin) + transform.up * castOffset;
-                if (!Physics.SphereCast(origin, wheel.Radius, -transform.up, out hit,
+                Vector3 origin = localToWorld.MultiplyPoint3x4(localOrigin) + up * castOffset;
+                if (!physicsScene.SphereCast(origin, wheel.Radius, -up, out hit,
                     wheel.Travel + castOffset, 1, QueryTriggerInteraction.Ignore) ||
-                    Vector3.Dot(hit.normal, transform.up) < MinimumGroundAlignment ||
+                    Vector3.Dot(hit.normal, up) < MinimumGroundAlignment ||
                     Vector3.Dot(hit.normal, Vector3.up) < MinimumGroundAlignment)
                 {
                     extension = wheel.Travel;

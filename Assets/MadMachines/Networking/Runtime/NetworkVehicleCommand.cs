@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -11,6 +12,7 @@ namespace MadMachines.Networking
         public bool Handbrake;
         public Vector3 Aim;
         public bool Fire;
+        public VehicleCommand Movement => new VehicleCommand { Throttle = Throttle, Steering = Steering, Handbrake = Handbrake };
 
         public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
         {
@@ -36,7 +38,7 @@ namespace MadMachines.Networking
     // Server clock only. A small burst absorbs packet batching without allowing unlimited commands.
     public sealed class NetworkCommandGate
     {
-        private const double CommandsPerSecond = 40;
+        private const double CommandsPerSecond = 60;
         private const double Burst = 8;
         private double tokens = Burst;
         private double updated;
@@ -72,11 +74,13 @@ namespace MadMachines.Networking
     public enum CommandRejection { None, Rate, Values, Sequence, Clock, Sender, Inactive }
 
     // No MonoBehaviour or wall-clock reads: both the RPC adapter and editor checks use this policy.
-    // Movement is a latest-value stream, fire is latched only until the next physics step.
+    // Consume one movement input per physics step. Aim and fire remain a latest-value stream.
     public sealed class NetworkCommandBuffer
     {
         public const double Timeout = 0.25;
+        private const int MaxQueuedSteps = 4;
         private readonly NetworkCommandGate gate = new NetworkCommandGate();
+        private readonly Queue<(NetworkVehicleCommand Command, double ArrivedAt)> movement = new Queue<(NetworkVehicleCommand, double)>(MaxQueuedSteps);
         private NetworkVehicleCommand latest;
         private double pendingFireAt = double.NegativeInfinity;
         private double lastAcceptedAt = double.NegativeInfinity;
@@ -90,6 +94,7 @@ namespace MadMachines.Networking
         public void ClearInput()
         {
             latest = default;
+            movement.Clear();
             pendingFireAt = double.NegativeInfinity;
             lastAcceptedAt = double.NegativeInfinity;
         }
@@ -101,6 +106,8 @@ namespace MadMachines.Networking
             CommandRejection rejection = gate.Evaluate(command, now);
             if (rejection != CommandRejection.None) return rejection;
             latest = command;
+            if (movement.Count == MaxQueuedSteps) movement.Dequeue();
+            movement.Enqueue((command, now));
             if (command.Fire) pendingFireAt = now;
             lastAcceptedAt = now;
             return CommandRejection.None;
@@ -109,7 +116,13 @@ namespace MadMachines.Networking
         public bool Sample(double now, out NetworkVehicleCommand command)
         {
             bool fresh = now >= lastAcceptedAt && now - lastAcceptedAt <= Timeout;
-            command = fresh ? latest : new NetworkVehicleCommand { Handbrake = true };
+            while (movement.Count > 0 && now - movement.Peek().ArrivedAt > Timeout) movement.Dequeue();
+            command = new NetworkVehicleCommand { Handbrake = true };
+            if (fresh)
+            {
+                command = movement.Count > 0 ? movement.Dequeue().Command : latest;
+                command.Aim = latest.Aim;
+            }
             command.Fire = fresh && (latest.Fire || (now >= pendingFireAt && now - pendingFireAt <= Timeout));
             pendingFireAt = double.NegativeInfinity;
             return fresh;

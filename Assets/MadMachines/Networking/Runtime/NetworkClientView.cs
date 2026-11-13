@@ -7,9 +7,11 @@ namespace MadMachines.Networking
     // Created exclusively by a client session. No input, camera or IMGUI component exists on the server.
     public sealed class NetworkClientView : MonoBehaviour
     {
-        private const double SendInterval = 1.0 / 30.0;
+        private enum CameraComparison { Smoothed, Direct, Stationary }
+
         private NetworkSandboxSession session;
         private NetworkVehicle localVehicle;
+        private NetworkPhysicsState localState;
         private int? localSlot;
         private NetworkVehicle aimedVehicle;
         private Camera view;
@@ -17,16 +19,25 @@ namespace MadMachines.Networking
         private string port;
         private float yaw;
         private float pitch = 12f;
-        private double nextCommand;
+        private double resumeCommandsAt;
         private double fireUntil;
         private uint sequence;
+        private VehicleCommand movement = new VehicleCommand { Handbrake = true };
+        private bool predictionEnabled = true;
         private bool hasFocus = true;
         private GUIStyle statusStyle;
         private bool captureWhenReady;
         private bool captureOnNextVehicle = true;
         private bool waitForFireRelease = true;
+        private CameraComparison cameraComparison;
         private readonly GameSettingsPanel settings = new GameSettingsPanel();
         public bool ReadyForPlay => localVehicle != null && localVehicle.IsSpawned;
+        public string CameraComparisonName => cameraComparison switch
+        {
+            CameraComparison.Direct => "Прямое слежение",
+            CameraComparison.Stationary => "Фиксированная позиция",
+            _ => "Обычное сглаживание"
+        };
 
         public void Configure(NetworkSandboxSession value)
         {
@@ -59,21 +70,26 @@ namespace MadMachines.Networking
             if (session.HasResults)
             {
                 if (Cursor.lockState != CursorLockMode.None) ReleaseCursor();
+                if (localState != null) localState.StopPrediction();
                 return;
             }
             NetworkVehicle current = FindLocalVehicle();
             if (!ReferenceEquals(current, localVehicle))
             {
+                if (localState != null) localState.StopPrediction();
                 localVehicle = current;
+                localState = current != null ? current.GetComponent<NetworkPhysicsState>() : null;
                 aimedVehicle = null;
                 fireUntil = 0;
+                movement = new VehicleCommand { Handbrake = true };
+                cameraComparison = CameraComparison.Smoothed;
                 if (current != null)
                 {
                     localSlot = current.Slot;
                     yaw = current.transform.eulerAngles.y;
                     pitch = 12f;
                     sequence = 0;
-                    nextCommand = 0;
+                    resumeCommandsAt = 0;
                     captureWhenReady = captureOnNextVehicle && !settings.IsOpen;
                     MoveCamera(true);
                 }
@@ -98,6 +114,18 @@ namespace MadMachines.Networking
                 CaptureCursor();
             }
             Mouse mouse = Mouse.current;
+            if (keyboard != null && keyboard.f8Key.wasPressedThisFrame)
+            {
+                cameraComparison = (CameraComparison)(((int)cameraComparison + 1) % 3);
+                Debug.Log($"[MM NET SMOOTH] Камера: {CameraComparisonName}. F8 переключает режим сравнения.");
+            }
+            if (keyboard != null && keyboard.f9Key.wasPressedThisFrame)
+            {
+                predictionEnabled = !predictionEnabled;
+                if (predictionEnabled) localState.RetryPrediction();
+                else localState.StopPrediction();
+                Debug.Log($"[MM NET PREDICT] Предсказание своей машины {(predictionEnabled ? "включено" : "выключено")}.");
+            }
             if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
             {
                 if (settings.IsOpen) settings.Close();
@@ -113,19 +141,32 @@ namespace MadMachines.Networking
                 if (!mouse.leftButton.isPressed) waitForFireRelease = false;
                 if (!waitForFireRelease && mouse.leftButton.wasPressedThisFrame) fireUntil = Time.realtimeSinceStartupAsDouble + 0.1;
             }
-            if (Time.realtimeSinceStartupAsDouble < nextCommand) return;
-            nextCommand = Time.realtimeSinceStartupAsDouble + SendInterval;
-            float throttle = controlling && keyboard != null ? (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f) : 0f;
-            float steering = controlling && keyboard != null ? (keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f) : 0f;
-            localVehicle.SendCommand(new NetworkVehicleCommand
+            movement = new VehicleCommand
+            {
+                Throttle = controlling && keyboard != null ? (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f) : 0f,
+                Steering = controlling && keyboard != null ? (keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f) : 0f,
+                Handbrake = !controlling || (keyboard != null && keyboard.spaceKey.isPressed)
+            };
+        }
+
+        private void FixedUpdate()
+        {
+            if (!ReadyForPlay || !localVehicle.IsLocalController || !localVehicle.isActiveAndEnabled || GameFlow.Loading || session.HasResults ||
+                session.Manager.ShutdownInProgress || Time.realtimeSinceStartupAsDouble < resumeCommandsAt) return;
+            bool controlling = hasFocus && Cursor.lockState == CursorLockMode.Locked;
+            VehicleCommand step = controlling ? movement : new VehicleCommand { Handbrake = true };
+            Mouse mouse = Mouse.current;
+            NetworkVehicleCommand command = new NetworkVehicleCommand
             {
                 Sequence = ++sequence,
-                Throttle = throttle,
-                Steering = steering,
-                Handbrake = !controlling || (keyboard != null && keyboard.spaceKey.isPressed),
+                Throttle = step.Throttle,
+                Steering = step.Steering,
+                Handbrake = step.Handbrake,
                 Aim = AimDirection(),
                 Fire = controlling && !waitForFireRelease && ((mouse != null && mouse.leftButton.isPressed) || Time.realtimeSinceStartupAsDouble < fireUntil)
-            });
+            };
+            localVehicle.SendCommand(command);
+            if (predictionEnabled) localState.Predict(command, session.gameObject.scene);
         }
 
 #if UNITY_EDITOR
@@ -160,7 +201,8 @@ namespace MadMachines.Networking
                 command.Sequence = ++sequence;
                 localVehicle.SendCommand(command);
             }
-            nextCommand = Time.realtimeSinceStartupAsDouble + 0.6;
+            localState.StopPrediction();
+            resumeCommandsAt = Time.realtimeSinceStartupAsDouble + 0.6;
             Debug.Log("[MM NET] Отправлены неверные числа, повтор, старый номер и пачка команд. Смотрите счётчики сервера; доставка UDP не гарантирована. Ввод возобновится через 0,6 с.");
         }
 #endif
@@ -203,6 +245,11 @@ namespace MadMachines.Networking
         private void MoveCamera(bool snap)
         {
             Quaternion rotation = Quaternion.Euler(pitch, yaw, 0f);
+            if (!snap && cameraComparison == CameraComparison.Stationary)
+            {
+                view.transform.rotation = rotation;
+                return;
+            }
             Vector3 pivot = localVehicle.transform.position + Vector3.up * 1.6f;
             Vector3 offset = rotation * new Vector3(0f, 0f, -9f);
             float distance = offset.magnitude;
@@ -211,13 +258,17 @@ namespace MadMachines.Networking
                 if (hit.rigidbody != localVehicle.Body) distance = Mathf.Min(distance, Mathf.Max(0.3f, hit.distance - 0.15f));
             }
             Vector3 position = pivot + offset.normalized * distance;
-            view.transform.position = snap ? position : Vector3.Lerp(view.transform.position, position, 1f - Mathf.Exp(-15f * Time.unscaledDeltaTime));
+            view.transform.position = snap || cameraComparison == CameraComparison.Direct ? position :
+                Vector3.Lerp(view.transform.position, position, 1f - Mathf.Exp(-15f * Time.unscaledDeltaTime));
             view.transform.rotation = rotation;
         }
 
         private void OnGUI()
         {
             if (session == null || GameFlow.Loading) return;
+            if (ReadyForPlay && cameraComparison != CameraComparison.Smoothed)
+                GUI.Label(new Rect(Mathf.Max(12f, Screen.width - 460f), 12f, 450f, 28f),
+                    $"Камера: {CameraComparisonName} · F8 — сравнение");
             if (GameFlow.OnlineLaunchPending)
             {
                 DrawDeathmatch();
@@ -355,6 +406,7 @@ namespace MadMachines.Networking
 
         private void OnDestroy()
         {
+            if (localState != null) localState.StopPrediction();
             ReleaseCursor();
             if (view != null) Destroy(view.gameObject);
         }

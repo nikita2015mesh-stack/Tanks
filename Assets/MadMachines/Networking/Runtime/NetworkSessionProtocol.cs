@@ -8,7 +8,7 @@ namespace MadMachines.Networking
     {
         // Keep the NGO handshake stable across application protocol updates so approval can report a reason.
         public const ushort NgoHandshakeVersion = 3;
-        public const ushort Version = 7;
+        public const ushort Version = 9;
         public const string RejectionPrefix = "[MM INCOMPATIBLE] ";
         private const int MapIdOffset = 13;
 
