@@ -7,7 +7,8 @@ namespace MadMachines
         Grenade,
         Bullet,
         Shell,
-        Penetrator
+        Penetrator,
+        Rocket
     }
 
     [CreateAssetMenu(menuName = "Mad Machines/Weapon")]
@@ -29,8 +30,10 @@ namespace MadMachines
         public Color Color = Color.yellow;
         [SerializeField] private ProjectileAppearance appearance;
         [SerializeField] private ProjectileDefinition[] ammunition;
+        [SerializeField, Min(0f)] private float steeringDegreesPerSecond;
 
         public ProjectileAppearance Appearance => appearance;
+        internal float SteeringDegreesPerSecond => steeringDegreesPerSecond;
         public int AmmunitionCount => ammunition == null || ammunition.Length == 0 ? 1 : ammunition.Length;
         public ProjectileDefinition GetProjectile(int index = 0)
         {

@@ -117,6 +117,7 @@ namespace MadMachines
         public void Recover()
         {
             if (!Authority || Phase == SessionPhase.Countdown) return;
+            participant.GetComponent<WeaponSystem>().StopRocketGuidance();
             if (NextCheckpoint > 0 && Mode != ChallengeMode.Shooting)
             {
                 Transform gate = checkpoints[NextCheckpoint - 1].transform;

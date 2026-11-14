@@ -23,6 +23,13 @@ namespace MadMachines
         private LineRenderer tracerLine;
         private Vector3 launchPoint;
         private List<Collider> penetratedPlates;
+        private Vector3 guidancePoint;
+        private bool hasGuidancePoint;
+        private TrailRenderer smokeTrail;
+
+        internal bool InFlight => !detonated && isActiveAndEnabled;
+        internal bool IsGuiding { get; private set; }
+        internal float RemainingLifetimeFraction => InFlight ? Mathf.Clamp01((expires - Time.time) / definition.Lifetime) : 0f;
 
         public static Projectile Launch(ProjectileDefinition definition, Vector3 position, Vector3 direction, VehiclePhysics owner, int shotId,
             bool tracer = false)
@@ -30,14 +37,15 @@ namespace MadMachines
             GameObject shot = new GameObject(definition.Label + " projectile") { layer = 2 };
             SceneManager.MoveGameObjectToScene(shot, owner.gameObject.scene);
             shot.transform.position = position;
-            shot.transform.localScale = Vector3.one * definition.Size * 2f;
-            shot.AddComponent<SphereCollider>().radius = 0.5f;
+            if (!definition.Guided) shot.transform.localScale = Vector3.one * definition.Size * 2f;
+            shot.AddComponent<SphereCollider>().radius = definition.Guided ? definition.Size : 0.5f;
             shot.AddComponent<Rigidbody>();
             AddTrail(shot, definition);
             Projectile projectile = shot.AddComponent<Projectile>();
             projectile.Initialize(definition, direction, owner, shotId);
             projectile.model = ProjectileVisual.Attach(shot, definition.Appearance);
             ProjectileVisual.PointAlong(projectile.model, projectile.body.linearVelocity);
+            if (definition.Guided) projectile.smokeTrail = AddRocketSmoke(projectile.model);
             if (tracer && !Application.isBatchMode) projectile.CreateTracer();
             return projectile;
         }
@@ -58,6 +66,8 @@ namespace MadMachines
             body.useGravity = definition.Gravity;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             body.linearVelocity = definition.LaunchVelocity(direction, owner.Body.linearVelocity);
+            IsGuiding = definition.Guided;
+            if (IsGuiding) body.interpolation = RigidbodyInterpolation.Interpolate;
             incomingVelocity = body.linearVelocity;
             if (definition.TimedBounce)
             {
@@ -69,6 +79,32 @@ namespace MadMachines
             expires = Time.time + definition.Lifetime;
             previous = body.position;
             launchPoint = previous;
+        }
+
+        internal void SetGuidancePoint(Vector3 point)
+        {
+            guidancePoint = point;
+            hasGuidancePoint = true;
+        }
+
+        internal void StopGuidance() => IsGuiding = false;
+
+        private static TrailRenderer AddRocketSmoke(Transform model)
+        {
+            if (model == null) return null;
+            GameObject smoke = new GameObject("Rocket smoke");
+            smoke.transform.SetParent(model, false);
+            smoke.transform.localPosition = new Vector3(0f, 0f, -0.48f);
+            TrailRenderer trail = smoke.AddComponent<TrailRenderer>();
+            trail.sharedMaterial = DrivingEffects.In(smoke.scene).WakeMaterial;
+            trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            trail.receiveShadows = false;
+            trail.startColor = new Color(1f, 0.94f, 0.76f, 0.9f);
+            trail.endColor = new Color(0.48f, 0.49f, 0.47f, 0f);
+            trail.startWidth = 0.15f;
+            trail.endWidth = 0.03f;
+            trail.time = 1f;
+            return trail;
         }
 
         public static void AddTrail(GameObject shot, ProjectileDefinition definition)
@@ -132,17 +168,28 @@ namespace MadMachines
             Vector3 delta = body.position - previous;
             if (!definition.TimedBounce && delta.sqrMagnitude > 0.0001f && Sweep(delta, out RaycastHit hit))
             {
-                body.position = hit.point;
+                body.position = definition.Guided ? previous + delta.normalized * hit.distance : hit.point;
                 ResolveImpact(hit.collider, hit.point, hit.normal, body.linearVelocity);
                 return;
             }
             previous = body.position;
+            if (IsGuiding && hasGuidancePoint)
+            {
+                Vector3 toAim = guidancePoint - body.position;
+                Vector3 velocity = body.linearVelocity;
+                if (Vector3.Dot(toAim, velocity) > 0f)
+                {
+                    float turn = definition.SteeringDegreesPerSecond * Mathf.Deg2Rad * Time.fixedDeltaTime;
+                    Vector3 heading = Vector3.RotateTowards(velocity.normalized, toAim.normalized, turn, 0f);
+                    body.linearVelocity = heading * velocity.magnitude;
+                }
+            }
             incomingVelocity = body.linearVelocity + definition.Acceleration * Time.fixedDeltaTime;
         }
 
         private bool Sweep(Vector3 delta, out RaycastHit nearest)
         {
-            if (finish == null && penetratedPlates == null)
+            if (finish == null && penetratedPlates == null && !definition.Guided)
                 return Physics.SphereCast(previous, definition.Size, delta.normalized, out nearest,
                     delta.magnitude, sweepLayers, QueryTriggerInteraction.Ignore);
 
@@ -220,6 +267,13 @@ namespace MadMachines
         {
             if (detonated) return;
             detonated = true;
+            StopGuidance();
+            if (smokeTrail != null)
+            {
+                smokeTrail.emitting = false;
+                smokeTrail.transform.SetParent(null, true);
+                Destroy(smokeTrail.gameObject, smokeTrail.time);
+            }
             Vector3 position = body.position;
             Target directTarget = null;
             if (direct != null)

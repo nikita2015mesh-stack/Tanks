@@ -110,6 +110,8 @@ namespace MadMachines
                 if (keyboard.digit1Key.wasPressedThisFrame) weapons.Select(0);
                 if (keyboard.digit2Key.wasPressedThisFrame) weapons.Select(1);
                 if (keyboard.digit3Key.wasPressedThisFrame) weapons.Select(2);
+                if (weapons.HasGuidedRocket && keyboard.digit4Key.wasPressedThisFrame)
+                    weapons.Select(WeaponSystem.GuidedRocketSlot);
                 if (keyboard.bKey.wasPressedThisFrame) weapons.SelectNextAmmunition();
                 if (Range != null) UpdateRangeControls(keyboard, mouse);
             }
@@ -129,7 +131,8 @@ namespace MadMachines
                 BrakeBeforeReversing = true
             });
             if (!mouse.leftButton.isPressed) waitForFireRelease = false;
-            if (!waitForFireRelease && mouse.leftButton.isPressed) weapons.RequestFire();
+            bool fire = weapons.GuidedRocketSelected ? mouse.leftButton.wasPressedThisFrame : mouse.leftButton.isPressed;
+            if (!waitForFireRelease && fire) weapons.RequestFire();
             if (keyboard.rKey.wasPressedThisFrame || vehicle.transform.position.y < -15f)
             {
                 rules.Recover();

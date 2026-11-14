@@ -16,6 +16,7 @@ namespace MadMachines
         private GUIStyle text;
         private GUIStyle button;
         private GUIStyle small;
+        private Texture2D rocketFuelMask;
         private readonly GameSettingsPanel settings = new GameSettingsPanel();
         private bool confirmExit;
 
@@ -41,6 +42,11 @@ namespace MadMachines
             // Input reads the flag from the preceding frame, regardless of Update order.
             if (settings.IsOpen) settings.Close();
             else if (confirmExit) confirmExit = false;
+        }
+
+        private void OnDestroy()
+        {
+            if (rocketFuelMask != null) Destroy(rocketFuelMask);
         }
 
         private void OnGUI()
@@ -139,12 +145,18 @@ namespace MadMachines
                 GUI.Label(new Rect(35, height - 107, 327, 27), $"{weapons.CurrentProjectile.Label}   ·   B — сменить", small);
             }
             GUI.Box(new Rect(20, height - 78, 355, 58), "");
-            GUI.Label(new Rect(35, height - 71, 335, 25), weapons.Reload > 0f ? "ПЕРЕЗАРЯДКА" : "МОЖНО СТРЕЛЯТЬ", small);
+            string weaponStatus = weapons.GuidedRocketSelected && weapons.RocketInFlight ? "РАКЕТА В ПОЛЁТЕ" :
+                weapons.Reload > 0f ? "ПЕРЕЗАРЯДКА" : "МОЖНО СТРЕЛЯТЬ";
+            GUI.Label(new Rect(35, height - 71, 335, 25), weaponStatus, small);
             GUI.Label(new Rect(185, height - 71, 180, 25), input.AimMode ? "C — ПРИЦЕЛЬНЫЙ ВИД" : "C — ТРЕТЬЕ ЛИЦО", small);
             GUI.color = new Color(0.3f, 1f, 0.65f);
             GUI.DrawTexture(new Rect(35, height - 40, 320 * (1f - weapons.Reload), 6), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            GUI.Label(new Rect(width - 394, height - 60, 374, 50), "1 — пулемёт  2 — пушка  3 — гранатомёт\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
+            string weaponKeys = weapons.HasGuidedRocket
+                ? "1 — пулемёт  2 — пушка  3 — гранатомёт  4 — ПТУР"
+                : "1 — пулемёт  2 — пушка  3 — гранатомёт";
+            GUI.Label(new Rect(width - 420, height - 60, 400, 50),
+                weaponKeys + "\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
             if (input.Range != null) DrawRange(input.Range, input.SightCamera, width, height);
             GUI.color = Time.time - rules.LastHitTime < 0.2f ? Color.red : Color.white;
             GUI.DrawTexture(new Rect(width / 2 - 13, height / 2, 9, 2), Texture2D.whiteTexture);
@@ -152,9 +164,70 @@ namespace MadMachines
             GUI.DrawTexture(new Rect(width / 2, height / 2 - 13, 2, 9), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(width / 2, height / 2 + 5, 2, 9), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            if (Event.current.type == EventType.Repaint) DrawBallistics(input.SightCamera, scale, width, height);
+            if (weapons.GuidedRocketSelected)
+            {
+                DrawRocketFuel(width * 0.5f, height * 0.5f);
+                if (weapons.IsGuidingRocket)
+                {
+                    GUI.color = new Color(1f, 0.75f, 0.2f);
+                    GUI.Label(new Rect(width * 0.5f - 38f, height * 0.5f + 17f, 100f, 25f), "Наведение", small);
+                    GUI.color = Color.white;
+                }
+            }
+            else if (Event.current.type == EventType.Repaint) DrawBallistics(input.SightCamera, scale, width, height);
             if (rules.Phase == SessionPhase.Countdown)
                 GUI.Label(new Rect(width / 2 - 125, height / 2 - 140, 250, 60), "ДО СТАРТА " + Mathf.CeilToInt(rules.Countdown), title);
+        }
+
+        private void DrawRocketFuel(float centerX, float centerY)
+        {
+            if (Event.current.type != EventType.Repaint) return;
+            if (rocketFuelMask == null) rocketFuelMask = CreateRocketFuelMask();
+
+            Rect arc = new Rect(centerX - 72f, centerY - 24f, 54f, 70f);
+            GUI.color = new Color(0.14f, 0.18f, 0.2f, 0.94f);
+            GUI.DrawTexture(arc, rocketFuelMask);
+
+            float fuel = weapons.RocketFuel;
+            if (fuel > 0f)
+            {
+                Color red = new Color(1f, 0.24f, 0.2f);
+                Color yellow = new Color(1f, 0.8f, 0.16f);
+                Color green = new Color(0.35f, 1f, 0.46f);
+                GUI.color = fuel < 0.5f ? Color.Lerp(red, yellow, fuel * 2f) : Color.Lerp(yellow, green, fuel * 2f - 1f);
+                Rect fill = new Rect(arc.x, arc.yMax - arc.height * fuel, arc.width, arc.height * fuel);
+                GUI.DrawTextureWithTexCoords(fill, rocketFuelMask, new Rect(0f, 0f, 1f, fuel));
+            }
+            GUI.color = Color.white;
+        }
+
+        private static Texture2D CreateRocketFuelMask()
+        {
+            const int width = 108;
+            const int height = 140;
+            Color32[] pixels = new Color32[width * height];
+            for (int y = 0; y < height; y++)
+            {
+                // Texture rows run from bottom to top. The arc bends toward the reticle at the bottom.
+                float down = 1f - (y + 0.5f) / height;
+                float center = (0.14f + 0.72f * down * down) * width;
+                float halfWidth = Mathf.Lerp(0.105f, 0.13f, down) * width;
+                for (int x = 0; x < width; x++)
+                {
+                    float coverage = Mathf.Clamp01(halfWidth + 0.5f - Mathf.Abs(x + 0.5f - center));
+                    pixels[y * width + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(coverage * 255f));
+                }
+            }
+
+            Texture2D mask = new Texture2D(width, height, TextureFormat.RGBA32, false)
+            {
+                name = "Rocket fuel arc",
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            mask.SetPixels32(pixels);
+            mask.Apply(false, true);
+            return mask;
         }
 
         private void DrawRange(ShootingRange range, Camera view, float width, float height)

@@ -92,6 +92,7 @@ namespace MadMachines
             }
             transform.position = position;
             transform.rotation = Quaternion.LookRotation(AimDirection);
+            if (weapons != null) weapons.GuideRocket(position, AimDirection);
         }
 
         private Vector3 ClearHull(Vector3 position)

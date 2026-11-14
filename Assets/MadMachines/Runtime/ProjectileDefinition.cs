@@ -19,6 +19,7 @@ namespace MadMachines
         [SerializeField] private bool timedBounce;
         [SerializeField] private Color color;
         [SerializeField] private ProjectileAppearance appearance;
+        [SerializeField, Min(0f)] private float steeringDegreesPerSecond;
 
         public string Label => label;
         public float Speed => speed;
@@ -33,10 +34,13 @@ namespace MadMachines
         public bool TimedBounce => timedBounce;
         public Color Color => color;
         public ProjectileAppearance Appearance => appearance;
+        internal float SteeringDegreesPerSecond => steeringDegreesPerSecond;
+        internal bool Guided => steeringDegreesPerSecond > 0f;
         internal Vector3 Acceleration => gravity ? Physics.gravity : Vector3.zero;
         internal bool IsShell => appearance == ProjectileAppearance.Shell || appearance == ProjectileAppearance.Penetrator;
 
-        internal Vector3 LaunchVelocity(Vector3 direction, Vector3 carrierVelocity) => direction * speed + carrierVelocity;
+        internal Vector3 LaunchVelocity(Vector3 direction, Vector3 carrierVelocity) =>
+            direction * speed + (Guided ? Vector3.zero : carrierVelocity);
 
         internal ProjectileDefinition(WeaponDefinition weapon)
         {
@@ -53,6 +57,7 @@ namespace MadMachines
             timedBounce = weapon.TimedBounce;
             color = weapon.Color;
             appearance = weapon.Appearance;
+            steeringDegreesPerSecond = weapon.SteeringDegreesPerSecond;
             // Earlier assets used the default appearance for every projectile.
             if (appearance == ProjectileAppearance.Grenade && !timedBounce)
                 appearance = blastRadius > 0f ? ProjectileAppearance.Shell : ProjectileAppearance.Bullet;

@@ -20,6 +20,7 @@ namespace MadMachines
     public sealed class WeaponSystem : MonoBehaviour
     {
         private const int TracerInterval = 5;
+        internal const int GuidedRocketSlot = 3;
         public delegate bool ProjectileLauncher(WeaponDefinition definition, Vector3 position, Vector3 direction, VehiclePhysics owner, int shotId);
 
         [SerializeField] private WeaponDefinition[] definitions;
@@ -27,12 +28,16 @@ namespace MadMachines
         [SerializeField] private Transform barrel;
         [SerializeField] private Transform muzzle;
         [SerializeField] private WeaponMount[] mounts;
+        [SerializeField] private Transform rocketRest;
         private VehiclePhysics vehicle;
         private WeaponCooldown cooldown;
+        private WeaponCooldown rocketCooldown;
         private int shotSequence;
         private int bulletCount;
         private int[] ammunitionSelections;
         private WeaponMount activeMount;
+        private WeaponDefinition guidedRocket;
+        private Projectile activeRocket;
 
         [Serializable]
         private struct WeaponMount
@@ -64,9 +69,16 @@ namespace MadMachines
 
         public int Selected { get; private set; } = 1;
         public bool Authority { get; set; } = true;
-        public WeaponDefinition Current => definitions[Selected];
-        public ProjectileDefinition CurrentProjectile => Current.GetProjectile(ammunitionSelections == null ? 0 : ammunitionSelections[Selected]);
-        public float Reload => Mathf.Clamp01(cooldown.Remaining(Time.timeAsDouble) / Current.Interval);
+        internal bool HasGuidedRocket => guidedRocket != null;
+        internal bool GuidedRocketSelected => HasGuidedRocket && Selected == GuidedRocketSlot;
+        internal bool RocketInFlight => activeRocket != null && activeRocket.InFlight;
+        internal bool IsGuidingRocket => RocketInFlight && activeRocket.IsGuiding;
+        internal float RocketFuel => RocketInFlight ? activeRocket.RemainingLifetimeFraction : RocketReloaded ? 1f : 0f;
+        private bool RocketReloaded => rocketCooldown.Remaining(Time.timeAsDouble) == 0f;
+        public WeaponDefinition Current => GuidedRocketSelected ? guidedRocket : definitions[Selected];
+        public ProjectileDefinition CurrentProjectile =>
+            Current.GetProjectile(GuidedRocketSelected || ammunitionSelections == null ? 0 : ammunitionSelections[Selected]);
+        public float Reload => Mathf.Clamp01((GuidedRocketSelected ? rocketCooldown : cooldown).Remaining(Time.timeAsDouble) / Current.Interval);
         private WeaponMount DefaultMount => new WeaponMount(turret, barrel, muzzle);
         private WeaponMount ActiveMount => activeMount.Yaw != null ? activeMount : DefaultMount;
         public Vector3 AimDirection => ActiveMount.Muzzle.forward;
@@ -95,22 +107,13 @@ namespace MadMachines
 
         public void Select(int index)
         {
-            if (definitions == null || index < 0 || index >= definitions.Length) return;
+            bool selectGuidedRocket = HasGuidedRocket && index == GuidedRocketSlot;
+            if (!selectGuidedRocket && (definitions == null || index < 0 || index >= definitions.Length)) return;
+            if (GuidedRocketSelected && !selectGuidedRocket) StopRocketGuidance();
             Selected = index;
 
             WeaponMount previous = ActiveMount;
-            WeaponMount next = DefaultMount;
-            if (mounts != null)
-            {
-                foreach (WeaponMount mount in mounts)
-                {
-                    if (mount.Weapon == Current && mount.IsValid(transform))
-                    {
-                        next = mount;
-                        break;
-                    }
-                }
-            }
+            WeaponMount next = FindMount(Current);
             if (previous.Yaw == next.Yaw)
             {
                 activeMount = next;
@@ -124,9 +127,62 @@ namespace MadMachines
             ApplyAimAngles(angles);
         }
 
+        private WeaponMount FindMount(WeaponDefinition weapon)
+        {
+            if (mounts != null)
+            {
+                foreach (WeaponMount mount in mounts)
+                {
+                    if (mount.Weapon == weapon && mount.IsValid(transform)) return mount;
+                }
+            }
+            return DefaultMount;
+        }
+
+        internal void EnableGuidedRocket(WeaponDefinition definition)
+        {
+            if (HasGuidedRocket || definition == null || !definition.GetProjectile().Guided || rocketRest == null) return;
+            WeaponMount mount = FindMount(definition);
+            if (!mount.IsValid(transform) || !rocketRest.IsChildOf(mount.Pitch)) return;
+            guidedRocket = definition;
+            ProjectileVisual.Attach(rocketRest.gameObject, ProjectileAppearance.Rocket);
+        }
+
+        private void LateUpdate()
+        {
+            if (!GuidedRocketSelected) return;
+            bool loaded = !RocketInFlight && RocketReloaded;
+            if (rocketRest.gameObject.activeSelf != loaded) rocketRest.gameObject.SetActive(loaded);
+        }
+
+        internal void GuideRocket(Vector3 origin, Vector3 direction)
+        {
+            if (!IsGuidingRocket) return;
+            ProjectileDefinition ammunition = CurrentProjectile;
+            float distance = ammunition.Speed * ammunition.Lifetime + Vector3.Distance(origin, MuzzlePosition);
+            if (Physics.Raycast(origin, direction, out RaycastHit first, distance, 1, QueryTriggerInteraction.Ignore))
+            {
+                if (first.rigidbody != vehicle.Body) distance = first.distance;
+                else
+                {
+                    foreach (RaycastHit hit in Physics.RaycastAll(origin, direction, distance, 1, QueryTriggerInteraction.Ignore))
+                    {
+                        if (hit.rigidbody != vehicle.Body && hit.distance < distance)
+                            distance = hit.distance;
+                    }
+                }
+            }
+            activeRocket.SetGuidancePoint(origin + direction * distance);
+        }
+
+        internal void StopRocketGuidance()
+        {
+            if (IsGuidingRocket) activeRocket.StopGuidance();
+        }
+
         internal void SelectNextAmmunition()
         {
-            if (Current.AmmunitionCount <= 1) return;
+            if (GuidedRocketSelected || Current.AmmunitionCount <= 1) return;
             ammunitionSelections ??= new int[definitions.Length];
             ammunitionSelections[Selected] = (ammunitionSelections[Selected] + 1) % Current.AmmunitionCount;
         }
@@ -153,10 +209,14 @@ namespace MadMachines
 
         public bool RequestFire(ProjectileLauncher launch)
         {
-            if (!Authority || !cooldown.TryBegin(Time.timeAsDouble, Current.Interval)) return false;
+            bool guided = GuidedRocketSelected;
+            if (!Authority || (guided && (RocketInFlight || launch != null))) return false;
             WeaponDefinition definition = Current;
+            ref WeaponCooldown selectedCooldown = ref (guided ? ref rocketCooldown : ref cooldown);
+            if (!selectedCooldown.TryBegin(Time.timeAsDouble, definition.Interval)) return false;
             ProjectileDefinition ammunition = CurrentProjectile;
             Transform shotMuzzle = ActiveMount.Muzzle;
+            Vector3 position = guided ? rocketRest.position : shotMuzzle.position;
             Vector2 spread = UnityEngine.Random.insideUnitCircle * definition.Spread;
             Vector3 direction = Quaternion.AngleAxis(spread.x, shotMuzzle.up) * Quaternion.AngleAxis(spread.y, shotMuzzle.right) * shotMuzzle.forward;
             int shotId = ++shotSequence;
@@ -165,19 +225,22 @@ namespace MadMachines
                 if (ammunition.Appearance == ProjectileAppearance.Bullet)
                     bulletCount = (bulletCount + 1) % TracerInterval;
                 bool tracer = ammunition.Appearance == ProjectileAppearance.Bullet && bulletCount == 0;
-                Projectile.Launch(ammunition, shotMuzzle.position, direction, vehicle, shotId, tracer);
+                Projectile projectile = Projectile.Launch(ammunition, position, direction, vehicle, shotId, tracer);
+                if (guided) activeRocket = projectile;
             }
-            else if (!launch(definition, shotMuzzle.position, direction, vehicle, shotId)) return false;
-            vehicle.Body.AddForceAtPosition(-direction * definition.Recoil, shotMuzzle.position, ForceMode.Impulse);
+            else if (!launch(definition, position, direction, vehicle, shotId)) return false;
+            vehicle.Body.AddForceAtPosition(-direction * definition.Recoil, position, ForceMode.Impulse);
             if (launch == null)
-                PlaygroundEffects.ShowShot(gameObject.scene, ammunition, shotMuzzle.position, shotMuzzle.forward);
+                PlaygroundEffects.ShowShot(gameObject.scene, ammunition, position, shotMuzzle.forward);
             Fired?.Invoke();
             return true;
         }
 
         public void ResetReload()
         {
+            StopRocketGuidance();
             cooldown = default;
+            rocketCooldown = default;
             bulletCount = 0;
         }
     }
