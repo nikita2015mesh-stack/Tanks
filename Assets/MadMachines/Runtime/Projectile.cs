@@ -37,15 +37,15 @@ namespace MadMachines
             GameObject shot = new GameObject(definition.Label + " projectile") { layer = 2 };
             SceneManager.MoveGameObjectToScene(shot, owner.gameObject.scene);
             shot.transform.position = position;
-            if (!definition.Guided) shot.transform.localScale = Vector3.one * definition.Size * 2f;
-            shot.AddComponent<SphereCollider>().radius = definition.Guided ? definition.Size : 0.5f;
+            if (!definition.IsRocket) shot.transform.localScale = Vector3.one * definition.Size * 2f;
+            shot.AddComponent<SphereCollider>().radius = definition.IsRocket ? definition.Size : 0.5f;
             shot.AddComponent<Rigidbody>();
             AddTrail(shot, definition);
             Projectile projectile = shot.AddComponent<Projectile>();
             projectile.Initialize(definition, direction, owner, shotId);
             projectile.model = ProjectileVisual.Attach(shot, definition.Appearance);
             ProjectileVisual.PointAlong(projectile.model, projectile.body.linearVelocity);
-            if (definition.Guided) projectile.smokeTrail = AddRocketSmoke(projectile.model);
+            if (definition.IsRocket) projectile.smokeTrail = AddRocketSmoke(projectile.model);
             if (tracer && !Application.isBatchMode) projectile.CreateTracer();
             return projectile;
         }
@@ -67,7 +67,7 @@ namespace MadMachines
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             body.linearVelocity = definition.LaunchVelocity(direction, owner.Body.linearVelocity);
             IsGuiding = definition.Guided;
-            if (IsGuiding) body.interpolation = RigidbodyInterpolation.Interpolate;
+            if (definition.IsRocket) body.interpolation = RigidbodyInterpolation.Interpolate;
             incomingVelocity = body.linearVelocity;
             if (definition.TimedBounce)
             {
@@ -168,7 +168,7 @@ namespace MadMachines
             Vector3 delta = body.position - previous;
             if (!definition.TimedBounce && delta.sqrMagnitude > 0.0001f && Sweep(delta, out RaycastHit hit))
             {
-                body.position = definition.Guided ? previous + delta.normalized * hit.distance : hit.point;
+                body.position = definition.IsRocket ? previous + delta.normalized * hit.distance : hit.point;
                 ResolveImpact(hit.collider, hit.point, hit.normal, body.linearVelocity);
                 return;
             }
@@ -189,7 +189,7 @@ namespace MadMachines
 
         private bool Sweep(Vector3 delta, out RaycastHit nearest)
         {
-            if (finish == null && penetratedPlates == null && !definition.Guided)
+            if (finish == null && penetratedPlates == null && !definition.IsRocket)
                 return Physics.SphereCast(previous, definition.Size, delta.normalized, out nearest,
                     delta.magnitude, sweepLayers, QueryTriggerInteraction.Ignore);
 

@@ -17,6 +17,7 @@ namespace MadMachines
         private GUIStyle button;
         private GUIStyle small;
         private Texture2D rocketFuelMask;
+        private Texture2D unguidedRocketIcon;
         private readonly GameSettingsPanel settings = new GameSettingsPanel();
         private bool confirmExit;
 
@@ -47,6 +48,7 @@ namespace MadMachines
         private void OnDestroy()
         {
             if (rocketFuelMask != null) Destroy(rocketFuelMask);
+            if (unguidedRocketIcon != null) Destroy(unguidedRocketIcon);
         }
 
         private void OnGUI()
@@ -155,7 +157,9 @@ namespace MadMachines
             string weaponKeys = weapons.HasGuidedRocket
                 ? "1 — пулемёт  2 — пушка  3 — гранатомёт  4 — ПТУР"
                 : "1 — пулемёт  2 — пушка  3 — гранатомёт";
-            GUI.Label(new Rect(width - 420, height - 60, 400, 50),
+            if (weapons.HasUnguidedRocket) weaponKeys += "  5 — НУРС";
+            float hintWidth = weapons.HasUnguidedRocket ? 482f : 400f;
+            GUI.Label(new Rect(width - hintWidth - 20f, height - 60, hintWidth, 50),
                 weaponKeys + "\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
             if (input.Range != null) DrawRange(input.Range, input.SightCamera, width, height);
             GUI.color = Time.time - rules.LastHitTime < 0.2f ? Color.red : Color.white;
@@ -174,9 +178,61 @@ namespace MadMachines
                     GUI.color = Color.white;
                 }
             }
+            else if (weapons.UnguidedRocketSelected) DrawUnguidedRocketAmmo(width * 0.5f, height * 0.5f);
             else if (Event.current.type == EventType.Repaint) DrawBallistics(input.SightCamera, scale, width, height);
             if (rules.Phase == SessionPhase.Countdown)
                 GUI.Label(new Rect(width / 2 - 125, height / 2 - 140, 250, 60), "ДО СТАРТА " + Mathf.CeilToInt(rules.Countdown), title);
+        }
+
+        private void DrawUnguidedRocketAmmo(float centerX, float centerY)
+        {
+            int loaded = weapons.UnguidedRocketsLoaded;
+            if (loaded == 0 || Event.current.type != EventType.Repaint) return;
+            if (unguidedRocketIcon == null) unguidedRocketIcon = CreateUnguidedRocketIcon();
+
+            GUI.color = Color.white;
+            for (int i = 0; i < loaded; i++)
+                GUI.DrawTexture(new Rect(centerX - 48f + i * 21f, centerY + 24f, 18f, 31f), unguidedRocketIcon);
+        }
+
+        private static Texture2D CreateUnguidedRocketIcon()
+        {
+            const int width = 48;
+            const int height = 84;
+            Color32[] pixels = new Color32[width * height];
+            Color outline = new Color(0.07f, 0.09f, 0.11f);
+            Color metal = new Color(0.63f, 0.73f, 0.8f);
+            Color amber = new Color(1f, 0.76f, 0.34f);
+            Color fins = new Color(0.36f, 0.48f, 0.56f);
+            for (int y = 0; y < height; y++)
+            {
+                if (y < 4 || y > 79) continue;
+                // Pixel rows start at the exhaust. The fins spread outward toward the bottom.
+                float halfWidth = y < 23 ? Mathf.Lerp(21f, 11f, Mathf.InverseLerp(8f, 23f, y))
+                    : y > 59 ? Mathf.Lerp(11f, 0.5f, Mathf.InverseLerp(59f, 80f, y)) : 11f;
+                for (int x = 0; x < width; x++)
+                {
+                    float offset = x + 0.5f - width * 0.5f;
+                    float edge = halfWidth - Mathf.Abs(offset);
+                    if (edge < -0.5f) continue;
+                    Color surface = y >= 57 || (y >= 47 && y <= 51) ? amber
+                        : y < 23 && Mathf.Abs(offset) > 9f ? fins : metal;
+                    float bevel = Mathf.Lerp(1.18f, 0.65f, Mathf.InverseLerp(-8f, 9f, offset));
+                    Color pixel = Color.Lerp(outline, surface * bevel, Mathf.Clamp01(edge - 1f));
+                    pixel.a = Mathf.Clamp01(edge + 0.5f);
+                    pixels[y * width + x] = pixel;
+                }
+            }
+
+            Texture2D icon = new Texture2D(width, height, TextureFormat.RGBA32, false)
+            {
+                name = "Unguided rocket ammo icon",
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            icon.SetPixels32(pixels);
+            icon.Apply(false, true);
+            return icon;
         }
 
         private void DrawRocketFuel(float centerX, float centerY)

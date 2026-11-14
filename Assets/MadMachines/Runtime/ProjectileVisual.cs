@@ -18,6 +18,8 @@ namespace MadMachines
         private static Material grenadeCase;
         private static Material rocketCase;
         private static Material rocketNose;
+        private static Material unguidedRocketCase;
+        private static Material unguidedRocketNose;
 
         internal static Transform Attach(GameObject shot, ProjectileAppearance appearance)
         {
@@ -46,7 +48,7 @@ namespace MadMachines
                 filter.sharedMesh = grenade;
                 renderer.sharedMaterials = new[] { grenadeCase, bronze };
             }
-            else if (appearance == ProjectileAppearance.Rocket)
+            else if (appearance == ProjectileAppearance.Rocket || appearance == ProjectileAppearance.UnguidedRocket)
             {
                 if (rocket == null)
                 {
@@ -58,10 +60,17 @@ namespace MadMachines
                     rocketCase = Metal("Rocket case", new Color(0.26f, 0.32f, 0.18f), 0.3f);
                     rocketNose = Metal("Rocket nose", new Color(0.95f, 0.45f, 0.08f), 0.38f);
                 }
+                bool unguided = appearance == ProjectileAppearance.UnguidedRocket;
+                if (unguided && unguidedRocketCase == null)
+                {
+                    unguidedRocketCase = Metal("Unguided rocket case", new Color(0.26f, 0.32f, 0.36f), 0.45f);
+                    unguidedRocketNose = Metal("Unguided rocket nose", new Color(1f, 0.67f, 0.19f), 0.48f);
+                }
+                Material casing = unguided ? unguidedRocketCase : rocketCase;
                 filter.sharedMesh = rocket;
-                renderer.sharedMaterials = new[] { rocketCase, rocketNose };
-                AddRocketFin(model.transform, new Vector3(0.38f, 0.035f, 0.23f));
-                AddRocketFin(model.transform, new Vector3(0.035f, 0.38f, 0.23f));
+                renderer.sharedMaterials = new[] { casing, unguided ? unguidedRocketNose : rocketNose };
+                AddRocketFin(model.transform, new Vector3(0.38f, 0.035f, 0.23f), casing);
+                AddRocketFin(model.transform, new Vector3(0.035f, 0.38f, 0.23f), casing);
             }
             else if (appearance == ProjectileAppearance.Bullet)
             {
@@ -100,7 +109,7 @@ namespace MadMachines
                 model.rotation = Quaternion.LookRotation(velocity);
         }
 
-        private static void AddRocketFin(Transform parent, Vector3 size)
+        private static void AddRocketFin(Transform parent, Vector3 size, Material casing)
         {
             GameObject fin = GameObject.CreatePrimitive(PrimitiveType.Cube);
             fin.name = "Rocket fins";
@@ -113,7 +122,7 @@ namespace MadMachines
             Object.Destroy(collider);
             MeshRenderer renderer = fin.GetComponent<MeshRenderer>();
             renderer.shadowCastingMode = ShadowCastingMode.Off;
-            renderer.sharedMaterial = rocketCase;
+            renderer.sharedMaterial = casing;
         }
 
         private static void CreateBullet()

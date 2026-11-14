@@ -8,7 +8,8 @@ namespace MadMachines
         Bullet,
         Shell,
         Penetrator,
-        Rocket
+        Rocket,
+        UnguidedRocket
     }
 
     [CreateAssetMenu(menuName = "Mad Machines/Weapon")]

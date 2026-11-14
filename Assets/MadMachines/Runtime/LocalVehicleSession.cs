@@ -9,6 +9,7 @@ namespace MadMachines
         [SerializeField] private Transform startPoint;
         [SerializeField] private VehicleCamera view;
         [SerializeField] private WeaponDefinition guidedRocket;
+        [SerializeField] private WeaponDefinition unguidedRocket;
 
         public void Configure(VehicleDefinition definition, Transform start, VehicleCamera camera)
         {
@@ -40,6 +41,7 @@ namespace MadMachines
             if (GameFlow.LocalLaunchPending) car.DriveMode = GameFlow.SelectedDrive;
             WeaponSystem weapons = car.GetComponent<WeaponSystem>();
             weapons.EnableGuidedRocket(guidedRocket);
+            weapons.EnableUnguidedRocket(unguidedRocket);
             rules.BindParticipant(car, startPoint);
             if (TryGetComponent(out ShootingRange range)) range.Bind(car);
             view.Configure(car.transform);
