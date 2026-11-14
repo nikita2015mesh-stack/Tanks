@@ -294,16 +294,8 @@ namespace MadMachines
         {
             bool interactable = GUI.enabled;
             GUILayout.Label("ГАРАЖ", heading);
+            DrawVehicleSelection();
             DrawNotice();
-            foreach (VehicleDefinition definition in GameFlow.Vehicles)
-            {
-                if (GUILayout.Toggle(draftVehicle == definition, definition.DisplayName, button) && draftVehicle != definition)
-                {
-                    draftVehicle = definition;
-                    draftDrive = GameFlow.ReadDrive(definition);
-                    BuildPreview(definition);
-                }
-            }
             GUILayout.Label("ПРИВОД", label);
             draftDrive = (VehicleDrive)(GUILayout.Toolbar((int)draftDrive - 1, DriveNames, button) + 1);
             GUILayout.Label(Dirty ? "Есть неприменённые изменения" : "Текущая конфигурация сохранена", label);
@@ -315,6 +307,31 @@ namespace MadMachines
             GUILayout.Space(8);
             DrawTestDrive();
             if (GUILayout.Button("НА ГЛАВНЫЙ", button)) LeaveGarage();
+        }
+
+        private void DrawVehicleSelection()
+        {
+            GUILayout.Label("ВЫБОР МАШИНЫ", label);
+            if (GameFlow.Vehicles.Count == 0)
+            {
+                GUILayout.Label("Нет доступных машин", label);
+                return;
+            }
+
+            Color background = GUI.backgroundColor;
+            foreach (VehicleDefinition definition in GameFlow.Vehicles)
+            {
+                bool selected = definition == draftVehicle;
+                GUI.backgroundColor = selected ? new Color(0.42f, 0.9f, 0.64f) : background;
+                bool clicked = GUILayout.Button(selected ? $"✓  {definition.DisplayName} — выбрана" : definition.DisplayName, button);
+                GUI.backgroundColor = background;
+                if (!clicked || selected) continue;
+
+                draftVehicle = definition;
+                draftDrive = GameFlow.ReadDrive(definition);
+                BuildPreview(definition);
+            }
+            GUILayout.Space(8);
         }
 
         private void DrawTestDrive()
