@@ -161,6 +161,8 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::MadMachines.FrontEnd
   vehicle: {fileID: 11400000, guid: c5ca49650e644f2d89166f87479bd368, type: 2}
+  vehicles:
+  - {fileID: 11400000, guid: 4d50933a061c5bc8b52e4371c052c5b0, type: 2}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
