@@ -42,8 +42,10 @@ namespace MadMachines
         public bool GuidedRocketSelected => HasGuidedRocket && Selected == GuidedRocketSlot;
         public bool RocketInFlight => activeRocket != null && activeRocket.InFlight;
         public bool IsGuidingRocket => activeRocket != null && activeRocket.IsGuiding;
+        public float RocketFuel => RocketInFlight ? activeRocket.RemainingLifetimeFraction : RocketReloaded ? 1f : 0f;
         public WeaponDefinition Current => GuidedRocketSelected ? guidedRocket : definitions[Selected];
         public float Reload => Mathf.Clamp01((GuidedRocketSelected ? rocketCooldown : cooldown).Remaining(Time.timeAsDouble) / Current.Interval);
+        private bool RocketReloaded => rocketCooldown.Remaining(Time.timeAsDouble) == 0f;
         private Transform ActiveMuzzle => GuidedRocketSelected ? rocketMuzzle : muzzle;
         public Vector3 AimDirection => ActiveMuzzle.forward;
         public Vector3 MuzzlePosition => ActiveMuzzle.position;
@@ -97,7 +99,7 @@ namespace MadMachines
         private void LateUpdate()
         {
             if (!GuidedRocketSelected) return;
-            bool loaded = !RocketInFlight && rocketCooldown.Remaining(Time.timeAsDouble) == 0f;
+            bool loaded = !RocketInFlight && RocketReloaded;
             if (rocketRest.gameObject.activeSelf != loaded) rocketRest.gameObject.SetActive(loaded);
         }
 

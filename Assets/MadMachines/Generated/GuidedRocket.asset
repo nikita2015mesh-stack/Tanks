@@ -15,10 +15,10 @@ MonoBehaviour:
   Label: "\u041F\u0422\u0423\u0420"
   Speed: 44
   Mass: 2
-  Interval: 3
+  Interval: 10
   Recoil: 90
   Spread: 0
-  Lifetime: 7
+  Lifetime: 3
   Radius: 4
   Impulse: 5000
   Size: 0.15

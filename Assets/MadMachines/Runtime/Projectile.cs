@@ -19,6 +19,7 @@ namespace MadMachines
         private bool hasGuidancePoint;
         private TrailRenderer smokeTrail;
         public bool InFlight => !detonated && isActiveAndEnabled;
+        public float RemainingLifetimeFraction => InFlight ? Mathf.Clamp01((expires - Time.time) / definition.Lifetime) : 0f;
         public bool IsGuiding { get; private set; }
 
         public static Projectile Launch(WeaponDefinition definition, Vector3 position, Vector3 direction, VehiclePhysics owner, int shotId)
