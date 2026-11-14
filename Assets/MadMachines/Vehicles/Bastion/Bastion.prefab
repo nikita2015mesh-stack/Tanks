@@ -229,9 +229,7 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::MadMachines.WeaponSystem
   definitions:
-  - {fileID: 11400000, guid: 1b83f57185672e64c82b35cdeca07e73, type: 2}
-  - {fileID: 11400000, guid: d3fe5d9cb94bc8f40bebd9cf796f6bb4, type: 2}
-  - {fileID: 11400000, guid: 4e9f04b6691ce7441a54bda85525d847, type: 2}
+  - {fileID: 11400000, guid: 5a6a1bb78a674a6782d7a745ef5a9185, type: 2}
   turret: {fileID: 301}
   barrel: {fileID: 311}
   muzzle: {fileID: 321}

@@ -158,6 +158,7 @@ namespace MadMachines
                 ? "1 — пулемёт  2 — пушка  3 — гранатомёт  4 — ПТУР"
                 : "1 — пулемёт  2 — пушка  3 — гранатомёт";
             if (weapons.HasUnguidedRocket) weaponKeys += "  5 — НУРС";
+            if (!weapons.HasMultipleWeapons) weaponKeys = "ЛКМ — выстрел";
             float hintWidth = weapons.HasUnguidedRocket ? 482f : 400f;
             GUI.Label(new Rect(width - hintWidth - 20f, height - 60, hintWidth, 50),
                 weaponKeys + "\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);

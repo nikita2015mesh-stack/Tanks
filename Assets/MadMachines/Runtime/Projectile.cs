@@ -121,8 +121,8 @@ namespace MadMachines
             Color tail = penetrator ? new Color(0.67f, 0.77f, 0.8f) : new Color(0.68f, 0.71f, 0.72f);
             trail.startColor = new Color(tail.r, tail.g, tail.b, 0.52f);
             trail.widthCurve = AnimationCurve.Linear(0f, 0.5f, 1f, 1f);
-            trail.widthMultiplier = penetrator ? 0.16f : 0.28f;
-            trail.time = penetrator ? 0.12f : 0.20f;
+            trail.widthMultiplier = definition.IsHeavyShell ? 0.46f : penetrator ? 0.16f : 0.28f;
+            trail.time = definition.IsHeavyShell ? 0.28f : penetrator ? 0.12f : 0.20f;
             tail.a = 0f;
             trail.endColor = tail;
         }

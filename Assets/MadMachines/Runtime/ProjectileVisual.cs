@@ -96,7 +96,7 @@ namespace MadMachines
             else
             {
                 if (shell == null) CreateShell();
-                model.transform.localScale = Vector3.one * 0.34f;
+                model.transform.localScale = Vector3.one * (appearance == ProjectileAppearance.HeavyShell ? 0.57f : 0.34f);
                 filter.sharedMesh = shell;
                 renderer.sharedMaterials = new[] { steel, bronze };
             }

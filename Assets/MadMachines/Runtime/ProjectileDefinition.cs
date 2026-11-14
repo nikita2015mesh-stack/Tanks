@@ -38,7 +38,8 @@ namespace MadMachines
         internal bool Guided => steeringDegreesPerSecond > 0f;
         internal bool IsRocket => appearance == ProjectileAppearance.Rocket || appearance == ProjectileAppearance.UnguidedRocket;
         internal Vector3 Acceleration => gravity ? Physics.gravity : Vector3.zero;
-        internal bool IsShell => appearance == ProjectileAppearance.Shell || appearance == ProjectileAppearance.Penetrator;
+        internal bool IsHeavyShell => appearance == ProjectileAppearance.HeavyShell;
+        internal bool IsShell => appearance == ProjectileAppearance.Shell || appearance == ProjectileAppearance.Penetrator || IsHeavyShell;
 
         internal Vector3 LaunchVelocity(Vector3 direction, Vector3 carrierVelocity) =>
             direction * speed + (Guided || IsRocket ? Vector3.zero : carrierVelocity);

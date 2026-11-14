@@ -115,14 +115,16 @@ namespace MadMachines
         {
             bool light = ammunition.BlastRadius <= 0f && !ammunition.IsShell;
             bool grenade = ammunition.TimedBounce;
-            Play(light ? Clips.Machinegun : ammunition.TimedBounce ? Clips.Grenade : Clips.Cannon,
-                point, light ? 0.52f : 0.88f, light ? 65f : 150f);
+            bool heavy = ammunition.IsHeavyShell;
+            AudioClip shot = heavy ? Clips.HeavyCannon : light ? Clips.Machinegun : grenade ? Clips.Grenade : Clips.Cannon;
+            Play(shot, point, heavy ? 1f : light ? 0.52f : 0.88f, heavy ? 240f : light ? 65f : 150f);
+            float flashScale = heavy ? 1.55f : 1f;
             if (!grenade)
-                FlashMuzzle(point, direction, light ? Vary(0.5f, 0.85f) : Vary(1.5f, 2.1f),
-                    light ? 0.25f : 0.65f, light ? 0.040f : 0.061f);
-            if (!light && !grenade) PulseLight(point + direction * 0.45f, 7f, 5.5f, 0.08f);
+                FlashMuzzle(point, direction, light ? Vary(0.5f, 0.85f) : Vary(1.5f, 2.1f) * flashScale,
+                    light ? 0.25f : 0.65f * flashScale, light ? 0.040f : 0.061f * flashScale);
+            if (!light && !grenade) PulseLight(point + direction * 0.45f, 7f * flashScale, 5.5f * flashScale, 0.08f);
 
-            int smokeCount = light ? 2 : 14;
+            int smokeCount = heavy ? 23 : light ? 2 : 14;
             for (int i = 0; i < smokeCount; i++)
             {
                 float speed = light ? Vary(1.4f, 3.1f) : Vary(0.55f, 4.1f);
@@ -509,6 +511,7 @@ namespace MadMachines
         {
             internal static readonly AudioClip Machinegun = LoadClip("Machinegun");
             internal static readonly AudioClip Cannon = LoadClip("Cannon");
+            internal static readonly AudioClip HeavyCannon = LoadClip("HeavyCannon");
             internal static readonly AudioClip Grenade = LoadClip("Grenade");
             internal static readonly AudioClip Hit = LoadClip("Hit");
             internal static readonly AudioClip Explosion = LoadClip("Explosion");

@@ -77,6 +77,7 @@ namespace MadMachines
         public int Selected { get; private set; } = 1;
         public bool Authority { get; set; } = true;
         internal bool HasGuidedRocket => guidedRocket != null;
+        internal bool HasMultipleWeapons => (definitions != null && definitions.Length > 1) || HasGuidedRocket || HasUnguidedRocket;
         internal bool GuidedRocketSelected => HasGuidedRocket && Selected == GuidedRocketSlot;
         internal bool HasUnguidedRocket => unguidedRocket != null;
         internal bool UnguidedRocketSelected => HasUnguidedRocket && Selected == UnguidedRocketSlot;

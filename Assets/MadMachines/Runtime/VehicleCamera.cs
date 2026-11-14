@@ -54,8 +54,8 @@ namespace MadMachines
         {
             ProjectileDefinition ammunition = weapons.CurrentProjectile;
             recoilStart = Time.time;
-            recoilDuration = ammunition.IsShell ? 0.24f : ammunition.TimedBounce ? 0.28f : 0.07f;
-            recoilDistance = ammunition.IsShell ? 0.18f : ammunition.TimedBounce ? 0.23f : 0.025f;
+            recoilDuration = ammunition.IsHeavyShell ? 0.36f : ammunition.IsShell ? 0.24f : ammunition.TimedBounce ? 0.28f : 0.07f;
+            recoilDistance = ammunition.IsHeavyShell ? 0.36f : ammunition.IsShell ? 0.18f : ammunition.TimedBounce ? 0.23f : 0.025f;
         }
 
         public void ResetView()
