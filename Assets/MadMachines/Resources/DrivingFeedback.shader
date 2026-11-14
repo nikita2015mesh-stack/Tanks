@@ -59,17 +59,17 @@ Shader "Mad Machines/Driving Feedback"
                 return output;
             }
 
-            float EffectHash(float2 point)
+            float EffectHash(float2 position)
             {
-                float3 p = frac(point.xyx * 0.1031);
+                float3 p = frac(position.xyx * 0.1031);
                 p += dot(p, p.yzx + 33.33);
                 return frac((p.x + p.y) * p.z);
             }
 
-            float CloudNoise(float2 point)
+            float CloudNoise(float2 position)
             {
-                float2 cell = floor(point);
-                float2 f = frac(point);
+                float2 cell = floor(position);
+                float2 f = frac(position);
                 f = f * f * (3.0 - 2.0 * f);
                 return lerp(lerp(EffectHash(cell), EffectHash(cell + float2(1, 0)), f.x),
                     lerp(EffectHash(cell + float2(0, 1)), EffectHash(cell + 1.0), f.x), f.y);
