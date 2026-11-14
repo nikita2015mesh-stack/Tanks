@@ -19,6 +19,7 @@ namespace MadMachines
         private float pitch = 12f;
         private float shake;
         public bool AimMode { get; private set; }
+        internal Camera ViewCamera => viewCamera;
         public Vector3 AimDirection => Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
         public void Configure(Transform follow)
         {

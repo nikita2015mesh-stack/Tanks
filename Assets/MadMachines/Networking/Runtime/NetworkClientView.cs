@@ -71,6 +71,7 @@ namespace MadMachines.Networking
             {
                 if (Cursor.lockState != CursorLockMode.None) ReleaseCursor();
                 if (localState != null) localState.StopPrediction();
+                if (localVehicle != null) localVehicle.PresentThrottle(0f);
                 return;
             }
             NetworkVehicle current = FindLocalVehicle();
@@ -147,6 +148,7 @@ namespace MadMachines.Networking
                 Steering = controlling && keyboard != null ? (keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f) : 0f,
                 Handbrake = !controlling || (keyboard != null && keyboard.spaceKey.isPressed)
             };
+            localVehicle.PresentThrottle(movement.Throttle);
         }
 
         private void FixedUpdate()

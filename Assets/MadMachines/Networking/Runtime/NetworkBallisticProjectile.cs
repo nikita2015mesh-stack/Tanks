@@ -13,14 +13,16 @@ namespace MadMachines.Networking
         private Projectile simulation;
         private NetworkSandboxSession match;
         private int shooterSlot;
+        private Transform model;
 
         public WeaponDefinition Definition => definition;
+        private ProjectileDefinition Ammunition => definition.GetProjectile();
 
         public void Configure(WeaponDefinition weapon) => definition = weapon;
 
         private void Awake()
         {
-            transform.localScale = Vector3.one * definition.Size * 2f;
+            transform.localScale = Vector3.one * Ammunition.Size * 2f;
             projectileCollider = GetComponent<SphereCollider>();
             projectileCollider.enabled = false;
         }
@@ -29,13 +31,25 @@ namespace MadMachines.Networking
         {
             // Clients only display the replicated projectile.
             projectileCollider.enabled = IsServer;
-            if (IsClient && !IsServer) Projectile.AddTrail(gameObject, definition);
+            if (IsClient && !IsServer)
+            {
+                model = ProjectileVisual.Attach(gameObject, Ammunition.Appearance);
+                Projectile.AddTrail(gameObject, Ammunition);
+            }
         }
+
+        internal void ApplyPresentation(Vector3 velocity) => ProjectileVisual.PointAlong(model, velocity);
 
         public override void OnNetworkDespawn()
         {
             projectileCollider.enabled = false;
             if (simulation != null) simulation.enabled = false;
+            if (model != null)
+            {
+                model.gameObject.SetActive(false);
+                Destroy(model.gameObject);
+                model = null;
+            }
         }
 
         public void Launch(NetworkVehicle shooter, VehiclePhysics vehicle, Vector3 direction, int shotId, NetworkSandboxSession deathmatch)
@@ -43,7 +57,7 @@ namespace MadMachines.Networking
             match = deathmatch;
             shooterSlot = shooter.Slot;
             simulation = gameObject.AddComponent<Projectile>();
-            simulation.Initialize(definition, direction, vehicle, shotId, NetworkVehicle.HitLayers, Finish);
+            simulation.Initialize(Ammunition, direction, vehicle, shotId, NetworkVehicle.HitLayers, Finish);
             Debug.Log($"[MM NET] Spawned projectile {NetworkObjectId} from vehicle {shooter.NetworkObjectId}.");
         }
 
@@ -55,19 +69,19 @@ namespace MadMachines.Networking
             {
                 vehicle.RegisterHit();
                 Debug.Log($"[MM NET] Projectile {NetworkObjectId} hit vehicle {vehicle.NetworkObjectId}. Total hits: {vehicle.Hits}.");
-                if (match != null) match.ApplyDeathmatchHit(shooterSlot, vehicle, definition.Damage);
+                if (match != null) match.ApplyDeathmatchHit(shooterSlot, vehicle, Ammunition.Damage);
             }
             else if (target != null) Debug.Log($"[MM NET] Projectile {NetworkObjectId} collided with {target.name}.");
             else Debug.Log($"[MM NET] Projectile {NetworkObjectId} expired.");
-            ShowImpactRpc(point);
+            ShowImpactRpc(point, target != null);
             NetworkObject.Despawn(true);
         }
 
         [Rpc(SendTo.NotServer, InvokePermission = RpcInvokePermission.Server)]
-        private void ShowImpactRpc(Vector3 point)
+        private void ShowImpactRpc(Vector3 point, bool hit)
         {
             if (IsClient && !IsServer && !NetworkManager.ShutdownInProgress)
-                PlaygroundEffects.Flash(point, definition.Color, Mathf.Max(0.4f, definition.Radius * 1.5f), 0.35f);
+                PlaygroundEffects.ShowImpact(gameObject.scene, Ammunition, point, hit);
         }
     }
 }

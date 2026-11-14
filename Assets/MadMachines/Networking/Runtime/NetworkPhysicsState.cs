@@ -111,6 +111,8 @@ namespace MadMachines.Networking
             NetworkPhysicsPose result = from;
             result.Position = Vector3.Lerp(from.Position, to.Position, blend);
             result.Rotation = Quaternion.Slerp(from.Rotation, to.Rotation, blend);
+            result.LinearVelocity = Vector3.Lerp(from.LinearVelocity, to.LinearVelocity, blend);
+            result.AngularVelocity = Vector3.Lerp(from.AngularVelocity, to.AngularVelocity, blend);
             result.AimAngles = new Vector2(Mathf.LerpAngle(from.AimAngles.x, to.AimAngles.x, blend),
                 Mathf.LerpAngle(from.AimAngles.y, to.AimAngles.y, blend));
             for (int i = 0; i < Mathf.Min(from.Wheels.Length, to.Wheels.Length); i++)
@@ -135,6 +137,7 @@ namespace MadMachines.Networking
         private readonly NetworkPoseBuffer samples = new NetworkPoseBuffer();
         private Rigidbody body;
         private NetworkVehicle vehicle;
+        private NetworkBallisticProjectile projectile;
         private CollisionDetectionMode serverCollisionMode;
         private Vector3 initialScale;
         private ulong physicsStep;
@@ -169,6 +172,7 @@ namespace MadMachines.Networking
         {
             body = GetComponent<Rigidbody>();
             vehicle = GetComponent<NetworkVehicle>();
+            projectile = GetComponent<NetworkBallisticProjectile>();
             initialScale = transform.localScale;
             serverCollisionMode = body.collisionDetectionMode;
             SetBodyAuthority(false);
@@ -374,6 +378,7 @@ namespace MadMachines.Networking
             transform.SetPositionAndRotation(sample.Position, sample.Rotation);
             transform.localScale = initialScale;
             if (vehicle != null) vehicle.ApplyPresentation(sample);
+            if (projectile != null) projectile.ApplyPresentation(sample.LinearVelocity);
         }
 
 #if UNITY_EDITOR

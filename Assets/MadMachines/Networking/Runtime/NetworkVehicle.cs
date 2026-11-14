@@ -23,9 +23,12 @@ namespace MadMachines.Networking
         private VehiclePhysics vehicle;
         private VehicleVisuals visuals;
         private WeaponSystem weapons;
+        private VehicleFeedback feedback;
+        private VehicleWheelState[] renderedWheels;
         private WeaponSystem.ProjectileLauncher launcher;
         private double nextSpeedUpdate;
         private double nextDiagnostic;
+        private float nextCollision;
         private int accepted;
         private int timeouts;
         private bool hadFreshInput;
@@ -113,6 +116,7 @@ namespace MadMachines.Networking
             hadFreshInput = false;
             weapons.ResetReload();
             nextSpeedUpdate = 0;
+            nextCollision = 0;
             nextDiagnostic = Time.realtimeSinceStartupAsDouble + 5;
             vehicle.Authority = IsServer;
             vehicle.enabled = IsServer;
@@ -122,6 +126,16 @@ namespace MadMachines.Networking
                 controller.Value = initialController;
                 slot.Value = initialSlot;
                 drive.Value = vehicle.DriveMode;
+            }
+            else if (IsClient && !Application.isBatchMode)
+            {
+                if (feedback == null)
+                {
+                    feedback = gameObject.AddComponent<VehicleFeedback>();
+                    feedback.Bind(vehicle);
+                    renderedWheels = new VehicleWheelState[vehicle.WheelCount];
+                }
+                feedback.enabled = true;
             }
         }
 
@@ -133,6 +147,7 @@ namespace MadMachines.Networking
             vehicle.Authority = false;
             vehicle.enabled = false;
             weapons.Authority = false;
+            if (feedback != null) feedback.enabled = false;
         }
 
         public void SendCommand(NetworkVehicleCommand command)
@@ -170,7 +185,7 @@ namespace MadMachines.Networking
                 if (latest.Fire && weapons.RequestFire(launcher))
                 {
                     shots.Value++;
-                    ShowMuzzleFlashRpc(weapons.MuzzlePosition);
+                    ShowMuzzleFlashRpc(weapons.MuzzlePosition, weapons.AimDirection);
                 }
             }
             if (now >= nextSpeedUpdate)
@@ -185,6 +200,16 @@ namespace MadMachines.Networking
             }
         }
 
+        private void OnCollisionEnter(Collision collision)
+        {
+            if (!IsSpawned || !IsServer || !isActiveAndEnabled || NetworkManager.ShutdownInProgress) return;
+            // Both chassis receive the callback for a two-vehicle collision.
+            NetworkVehicle other = collision.rigidbody != null ? collision.rigidbody.GetComponent<NetworkVehicle>() : null;
+            if (other != null && other.IsSpawned && other.NetworkObjectId < NetworkObjectId) return;
+            if (VehicleFeedback.TryGetCollision(collision, ref nextCollision, out Vector3 point, out float strength))
+                ShowCollisionRpc(point, strength);
+        }
+
         private void OnDisable()
         {
             // Retain sequence/rate protection across disable/enable of this same spawn.
@@ -194,6 +219,7 @@ namespace MadMachines.Networking
             vehicle.Authority = false;
             vehicle.enabled = false;
             weapons.Authority = false;
+            if (feedback != null) feedback.enabled = false;
         }
 
         private void OnEnable()
@@ -202,6 +228,7 @@ namespace MadMachines.Networking
             vehicle.Authority = IsServer;
             vehicle.enabled = IsServer;
             weapons.Authority = IsServer;
+            if (feedback != null) feedback.enabled = IsClient && !IsServer;
         }
 
         internal void CapturePresentation(ref NetworkPhysicsPose pose)
@@ -225,8 +252,17 @@ namespace MadMachines.Networking
             for (int i = 0; i < pose.Wheels.Length; i++)
             {
                 Vector3 wheel = pose.Wheels[i];
-                visuals.ApplyWheelPose(i, new VehicleWheelState { Extension = wheel.x, Steering = wheel.y, Rotation = wheel.z });
+                VehicleWheelState state = new VehicleWheelState { Extension = wheel.x, Steering = wheel.y, Rotation = wheel.z };
+                visuals.ApplyWheelPose(i, state);
+                if (renderedWheels != null) renderedWheels[i] = state;
             }
+            if (feedback != null && feedback.isActiveAndEnabled)
+                feedback.PresentWheels(renderedWheels, pose.LinearVelocity, pose.AngularVelocity);
+        }
+
+        internal void PresentThrottle(float throttle)
+        {
+            if (feedback != null) feedback.PresentControls(throttle);
         }
 
         private bool LaunchProjectile(WeaponDefinition weapon, Vector3 position, Vector3 direction, VehiclePhysics owner, int shotId)
@@ -234,17 +270,18 @@ namespace MadMachines.Networking
             // Do not allow the barrel to shoot through a wall or through another chassis.
             Vector3 mount = weapons.MountPosition;
             Vector3 path = position - mount;
+            float radius = weapon.GetProjectile().Size;
             // SphereCast does not report colliders already overlapping its starting sphere.
-            foreach (Collider overlap in Physics.OverlapSphere(mount, weapon.Size, HitLayers, QueryTriggerInteraction.Ignore))
+            foreach (Collider overlap in Physics.OverlapSphere(mount, radius, HitLayers, QueryTriggerInteraction.Ignore))
             {
                 if (overlap.attachedRigidbody != Body) return false;
             }
-            foreach (RaycastHit hit in Physics.SphereCastAll(mount, weapon.Size, path.normalized,
+            foreach (RaycastHit hit in Physics.SphereCastAll(mount, radius, path.normalized,
                 path.magnitude, HitLayers, QueryTriggerInteraction.Ignore))
             {
                 if (hit.rigidbody != Body) return false;
             }
-            foreach (Collider overlap in Physics.OverlapSphere(position, weapon.Size, HitLayers, QueryTriggerInteraction.Ignore))
+            foreach (Collider overlap in Physics.OverlapSphere(position, radius, HitLayers, QueryTriggerInteraction.Ignore))
             {
                 if (overlap.attachedRigidbody != Body) return false;
             }
@@ -270,10 +307,17 @@ namespace MadMachines.Networking
         }
 
         [Rpc(SendTo.NotServer, InvokePermission = RpcInvokePermission.Server)]
-        private void ShowMuzzleFlashRpc(Vector3 position)
+        private void ShowMuzzleFlashRpc(Vector3 position, Vector3 direction)
         {
             if (IsClient && !IsServer && !NetworkManager.ShutdownInProgress)
-                PlaygroundEffects.Flash(position, projectilePrefab.Definition.Color, 0.8f, 0.1f);
+                PlaygroundEffects.ShowShot(gameObject.scene, projectilePrefab.Definition.GetProjectile(), position, direction);
+        }
+
+        [Rpc(SendTo.NotServer, Delivery = RpcDelivery.Unreliable, InvokePermission = RpcInvokePermission.Server)]
+        private void ShowCollisionRpc(Vector3 position, float strength)
+        {
+            if (IsClient && !IsServer && !Application.isBatchMode && !NetworkManager.ShutdownInProgress)
+                DrivingEffects.In(gameObject.scene).ChassisImpact(position, strength);
         }
 
         public void RegisterHit()

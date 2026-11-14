@@ -8,9 +8,15 @@ namespace MadMachines
         [SerializeField] private float travel;
         [SerializeField] private Vector3 home;
         [SerializeField] private ChallengeManager rules;
-        private float health = 100f;
+        [SerializeField, Min(1f)] private float hitPoints = 100f;
+        private float health;
         public bool Destroyed => health <= 0f;
         public int Points => points;
+
+        private void Awake()
+        {
+            health = hitPoints;
+        }
 
         public void Configure(ChallengeManager manager, int value, float movement)
         {
@@ -30,18 +36,18 @@ namespace MadMachines
         {
             if (Destroyed || attacker == null) return;
             health -= damage;
-            rules.RegisterHit(attacker, shotId);
+            if (rules != null) rules.RegisterHit(attacker, shotId);
             PlaygroundEffects.Flash(transform.position, Color.white, 1.5f, 0.12f);
             if (Destroyed)
             {
-                rules.TargetDestroyed(this, attacker);
+                if (rules != null) rules.TargetDestroyed(this, attacker);
                 gameObject.SetActive(false);
             }
         }
 
         public void ResetTarget()
         {
-            health = 100f;
+            health = hitPoints;
             transform.position = home;
             if (TryGetComponent(out Rigidbody body)) body.position = home;
             gameObject.SetActive(true);

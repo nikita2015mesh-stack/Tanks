@@ -26,3 +26,31 @@ MonoBehaviour:
   Gravity: 1
   TimedBounce: 0
   Color: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  appearance: 2
+  ammunition:
+  - label: Осколочно-фугасный
+    speed: 38
+    mass: 4
+    lifetime: 6
+    size: 0.22
+    damage: 100
+    blastRadius: 5
+    blastImpulse: 7000
+    penetration: 0
+    gravity: 1
+    timedBounce: 0
+    color: {r: 0.8, g: 0.64, b: 0.34, a: 1}
+    appearance: 2
+  - label: Бронебойный
+    speed: 62
+    mass: 4
+    lifetime: 5
+    size: 0.18
+    damage: 75
+    blastRadius: 0
+    blastImpulse: 0
+    penetration: 67
+    gravity: 1
+    timedBounce: 0
+    color: {r: 0.6, g: 0.71, b: 0.77, a: 1}
+    appearance: 3

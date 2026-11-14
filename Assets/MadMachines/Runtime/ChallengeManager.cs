@@ -84,7 +84,7 @@ namespace MadMachines
             elapsed = Result = 0f;
             ResultDetail = "";
             foreach (Projectile projectile in FindObjectsByType<Projectile>()) Destroy(projectile.gameObject);
-            foreach (Target target in targets) target.ResetTarget();
+            ResetTargets();
             participant.Recover(spawn, spawnRotation);
             Phase = mode == ChallengeMode.Free ? SessionPhase.Free : SessionPhase.Countdown;
             startTime = Time.time + 3f;
@@ -94,6 +94,12 @@ namespace MadMachines
                 participant.Body.isKinematic = true;
             }
             Highlight();
+        }
+
+        internal void ResetTargets()
+        {
+            foreach (Target target in targets) target.ResetTarget();
+            LastHitTime = -10f;
         }
 
         private void Update()

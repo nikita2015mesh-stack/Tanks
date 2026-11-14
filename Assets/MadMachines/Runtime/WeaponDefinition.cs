@@ -2,6 +2,14 @@ using UnityEngine;
 
 namespace MadMachines
 {
+    public enum ProjectileAppearance
+    {
+        Sphere,
+        Bullet,
+        Shell,
+        Penetrator
+    }
+
     [CreateAssetMenu(menuName = "Mad Machines/Weapon")]
     public sealed class WeaponDefinition : ScriptableObject
     {
@@ -19,5 +27,17 @@ namespace MadMachines
         public bool Gravity = true;
         public bool TimedBounce;
         public Color Color = Color.yellow;
+        [SerializeField] private ProjectileAppearance appearance;
+        [SerializeField] private ProjectileDefinition[] ammunition;
+
+        public ProjectileAppearance Appearance => appearance;
+        public int AmmunitionCount => ammunition == null || ammunition.Length == 0 ? 1 : ammunition.Length;
+        public ProjectileDefinition GetProjectile(int index = 0)
+        {
+            // Keep single-ammunition assets and older serialized weapon definitions usable.
+            return ammunition == null || ammunition.Length == 0
+                ? new ProjectileDefinition(this)
+                : ammunition[Mathf.Clamp(index, 0, ammunition.Length - 1)];
+        }
     }
 }

@@ -47,6 +47,7 @@ namespace MadMachines
         public float Speed => Body.linearVelocity.magnitude * 3.6f;
         public int GroundedWheels { get; private set; }
         public int WheelCount => wheelDefinitions != null && wheelDefinitions.Length > 0 ? wheelDefinitions.Length : 4;
+        internal float Throttle => command.Throttle;
 
         private void Awake()
         {
@@ -309,6 +310,13 @@ namespace MadMachines
             return true;
         }
 
+        internal bool FindVisibleContact(PhysicsScene physicsScene, Matrix4x4 pose, Vector3 up, int index,
+            float visualExtension, out RaycastHit hit)
+        {
+            return FindContact(physicsScene, pose, up, GetWheelDefinition(index), visualExtension,
+                out hit, out float extension) && extension <= visualExtension + 0.12f;
+        }
+
         private void ResetWheelStates()
         {
             GroundedWheels = 0;
@@ -354,6 +362,7 @@ namespace MadMachines
             command = default;
             InitializeWheels();
             ResetWheelStates();
+            if (TryGetComponent(out VehicleFeedback feedback)) feedback.ResetMotion();
         }
     }
 }

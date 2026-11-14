@@ -198,7 +198,13 @@ namespace MadMachines.Networking
 
         private NetworkPhysicsPose Capture()
         {
-            NetworkPhysicsPose pose = new NetworkPhysicsPose { Position = body.position, Rotation = body.rotation };
+            NetworkPhysicsPose pose = new NetworkPhysicsPose
+            {
+                Position = body.position,
+                Rotation = body.rotation,
+                LinearVelocity = body.linearVelocity,
+                AngularVelocity = body.angularVelocity
+            };
             for (int i = 0; i < vehicle.WheelCount; i++)
             {
                 VehicleWheelState wheel = vehicle.GetWheelVisualState(i);

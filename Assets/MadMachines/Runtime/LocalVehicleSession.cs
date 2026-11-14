@@ -35,12 +35,14 @@ namespace MadMachines
 
             VehiclePhysics car = Instantiate(prefab, startPoint.position, startPoint.rotation, transform);
             car.name = prefab.name;
+            if (!Application.isBatchMode) car.gameObject.AddComponent<VehicleFeedback>().Bind(car);
             if (GameFlow.LocalLaunchPending) car.DriveMode = GameFlow.SelectedDrive;
             WeaponSystem weapons = car.GetComponent<WeaponSystem>();
             rules.BindParticipant(car, startPoint);
+            if (TryGetComponent(out ShootingRange range)) range.Bind(car);
             view.Configure(car.transform);
             view.ResetView();
-            input.Configure(car, weapons, view, rules);
+            input.Configure(car, weapons, view, rules, range);
             hud.Configure(input, car, weapons, rules);
         }
     }

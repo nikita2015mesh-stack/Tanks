@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace MadMachines
 {
@@ -125,41 +126,87 @@ namespace MadMachines
                 : $"{PlaygroundText.Seconds(rules.Elapsed)}   •   Ворота {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}";
             GUI.Label(new Rect(35, 61, 340, 30), progress, text);
             GUI.Label(new Rect(35, 94, 340, 50), $"{vehicle.Speed:0} км/ч   •   {weapons.Current.Label}", text);
+            bool hasAmmunitionChoice = weapons.Current.AmmunitionCount > 1;
+            if (hasAmmunitionChoice)
+            {
+                GUI.Box(new Rect(20, height - 111, 355, 37), "");
+                GUI.Label(new Rect(35, height - 107, 327, 27), $"{weapons.CurrentProjectile.Label}   ·   B — сменить", small);
+            }
             GUI.Box(new Rect(20, height - 78, 355, 58), "");
             GUI.Label(new Rect(35, height - 71, 335, 25), weapons.Reload > 0f ? "ПЕРЕЗАРЯДКА" : "МОЖНО СТРЕЛЯТЬ", small);
             GUI.Label(new Rect(185, height - 71, 180, 25), input.AimMode ? "C — ПРИЦЕЛЬНЫЙ ВИД" : "C — ТРЕТЬЕ ЛИЦО", small);
             GUI.color = new Color(0.3f, 1f, 0.65f);
             GUI.DrawTexture(new Rect(35, height - 40, 320 * (1f - weapons.Reload), 6), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            GUI.Label(new Rect(width - 375, height - 60, 355, 50), "1 — пулемёт  2 — пушка  3 — граната\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
+            GUI.Label(new Rect(width - 394, height - 60, 374, 50), "1 — пулемёт  2 — пушка  3 — гранатомёт\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
+            if (input.Range != null) DrawRange(input.Range, input.SightCamera, width, height);
             GUI.color = Time.time - rules.LastHitTime < 0.2f ? Color.red : Color.white;
             GUI.DrawTexture(new Rect(width / 2 - 13, height / 2, 9, 2), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(width / 2 + 5, height / 2, 9, 2), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(width / 2, height / 2 - 13, 2, 9), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(width / 2, height / 2 + 5, 2, 9), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            // Ballistic impact marker: first intersection of sampled trajectory, not a hitscan shot.
-            Vector3 position = weapons.MuzzlePosition;
-            Vector3 velocity = weapons.AimDirection * weapons.Current.Speed + vehicle.Body.linearVelocity;
-            for (int i = 0; i < 100; i++)
-            {
-                Vector3 next = position + velocity * 0.08f + (weapons.Current.Gravity ? Physics.gravity * 0.0032f : Vector3.zero);
-                if (Physics.Linecast(position, next, out RaycastHit hit, 1, QueryTriggerInteraction.Ignore))
-                {
-                    Vector3 screen = Camera.main.WorldToScreenPoint(hit.point);
-                    if (screen.z > 0f)
-                    {
-                        GUI.color = new Color(1f, 0.75f, 0.2f);
-                        GUI.Label(new Rect(screen.x / scale - 10, (Screen.height - screen.y) / scale - 13, 30, 30), "○", text);
-                        GUI.color = Color.white;
-                    }
-                    break;
-                }
-                position = next;
-                if (weapons.Current.Gravity) velocity += Physics.gravity * 0.08f;
-            }
+            if (Event.current.type == EventType.Repaint) DrawBallistics(input.SightCamera, scale, width, height);
             if (rules.Phase == SessionPhase.Countdown)
                 GUI.Label(new Rect(width / 2 - 125, height / 2 - 140, 250, 60), "ДО СТАРТА " + Mathf.CeilToInt(rules.Countdown), title);
+        }
+
+        private void DrawRange(ShootingRange range, Camera view, float width, float height)
+        {
+            if (view == null || Event.current.type != EventType.Repaint) return;
+            if (range.LastImpact != null)
+            {
+                GUI.Box(new Rect(width - 344, 20, 324, 74), "");
+                GUI.Label(new Rect(width - 330, 26, 300, 64), range.LastImpact, small);
+            }
+            ArmorPlate plate = range.ViewedPlate(view);
+            if (plate != null)
+            {
+                GUI.Box(new Rect(width - 344, 104, 324, 58), "");
+                GUI.Label(new Rect(width - 330, 110, 300, 47),
+                    $"Стенд {plate.Distance} м · {plate.Thickness} ед. · {plate.Tilt}°\nT — толщина   ·   Y — наклон", small);
+            }
+            string prediction = range.ShowPrediction ? "вкл." : "выкл.";
+            string resetHelp = rules.Mode == ChallengeMode.Free ? "F — сброс мишеней   ·   " : "";
+            GUI.Label(new Rect(width - 375, height - 84, 355, 26), $"{resetHelp}H — прогноз {prediction}", small);
+            if (input.AimMode && weapons.CurrentProjectile.IsShell)
+            {
+                GUI.Box(new Rect(width * 0.5f - 146, height - 112, 292, 53), "");
+                GUI.Label(new Rect(width * 0.5f - 132, height - 108, 266, 47),
+                    $"Прицел {range.ZeroDistance} м   ·   колесо мыши\nShift + колесо — шаг 5 м", small);
+            }
+        }
+
+        private void DrawBallistics(Camera view, float scale, float width, float height)
+        {
+            if (view == null) return;
+            ProjectileDefinition ammunition = weapons.CurrentProjectile;
+            Vector3 origin = weapons.MuzzlePosition;
+            Vector3 velocity = ammunition.LaunchVelocity(weapons.AimDirection, vehicle.Body.linearVelocity);
+            if (input.AimMode && ammunition.IsShell)
+            {
+                foreach (int distance in BallisticSight.Distances)
+                {
+                    if (!BallisticSight.TryGetMark(view, origin, velocity, ammunition, distance, out Vector3 mark)) continue;
+                    Vector2 point = new Vector2(mark.x, Screen.height - mark.y) / scale;
+                    if (point.y < 28f || point.y > height - 40f || point.x < 24f || point.x > width - 48f) continue;
+                    bool nearCenter = (point - new Vector2(width, height) * 0.5f).sqrMagnitude < 144f;
+                    if (nearCenter) continue;
+                    GUI.color = new Color(0f, 0f, 0f, 0.82f);
+                    GUI.DrawTexture(new Rect(point.x - 12f, point.y - 1f, 24f, 4f), Texture2D.whiteTexture);
+                    GUI.color = Color.white;
+                    GUI.DrawTexture(new Rect(point.x - 11f, point.y, 22f, 2f), Texture2D.whiteTexture);
+                    GUI.Label(new Rect(point.x + 15f, point.y - 11f, 63f, 24f), $"{distance} м", small);
+                }
+            }
+
+            if (input.Range != null && !input.Range.ShowPrediction) return;
+            if (!BallisticSight.PredictImpact(gameObject.scene.GetPhysicsScene(), origin, velocity, ammunition, out RaycastHit hit)) return;
+            Vector3 screen = view.WorldToScreenPoint(hit.point);
+            if (screen.z <= 0f) return;
+            GUI.color = new Color(1f, 0.75f, 0.2f);
+            GUI.Label(new Rect(screen.x / scale - 10, (Screen.height - screen.y) / scale - 13, 30, 30), "○", text);
+            GUI.color = Color.white;
         }
 
         private string FormatResult(float result)
