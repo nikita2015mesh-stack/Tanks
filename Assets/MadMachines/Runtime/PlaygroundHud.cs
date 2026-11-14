@@ -18,6 +18,7 @@ namespace MadMachines
         private Texture2D rocketFuelMask;
         private Texture2D unguidedRocketIcon;
         private readonly GameSettingsPanel settings = new GameSettingsPanel();
+        private readonly CombatHud combatHud = new CombatHud();
         private bool confirmExit;
 
         private void Awake()
@@ -62,12 +63,12 @@ namespace MadMachines
                 small = new GUIStyle(text) { fontSize = 15 };
                 button = new GUIStyle(GUI.skin.button) { fontSize = 19, fixedHeight = 43 };
             }
-            float scale = Mathf.Min(Screen.width / 1280f, Screen.height / 720f);
-            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * scale);
-            float width = Screen.width / scale;
-            float height = Screen.height / scale;
             if (input.Menu || input.Paused || rules.Phase == SessionPhase.Results)
             {
+                float scale = Mathf.Min(Screen.width / 1280f, Screen.height / 720f);
+                float height = Screen.height / scale;
+                Matrix4x4 previous = GUI.matrix;
+                GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
                 GUI.color = new Color(0.025f, 0.06f, 0.1f, 0.96f);
                 GUI.DrawTexture(new Rect(30, 30, 510, height - 60), Texture2D.whiteTexture);
                 GUI.color = Color.white;
@@ -124,50 +125,57 @@ namespace MadMachines
                 }
                 input.MenuOverlayOpen = settings.IsOpen || confirmExit;
                 GUILayout.EndArea();
+                GUI.matrix = previous;
                 return;
             }
-            GUI.Box(new Rect(20, 20, 360, 138), "");
-            GUI.Label(new Rect(35, 28, 340, 35), PlaygroundText.ModeName(rules.Mode), text);
-            string progress = rules.Mode == ChallengeMode.Free ? "Исследуйте карту и опробуйте машину" : rules.Mode == ChallengeMode.Shooting
-                ? $"Осталось {PlaygroundText.Seconds(rules.Remaining, "0.0")}   •   {FormatResult(rules.Score)}"
-                : $"{PlaygroundText.Seconds(rules.Elapsed)}   •   Ворота {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}";
-            GUI.Label(new Rect(35, 61, 340, 30), progress, text);
-            GUI.Label(new Rect(35, 94, 340, 50), $"{vehicle.Speed:0} км/ч   •   {weapons.Current.Label}", text);
-            string brakeStatus = "P — стояночный тормоз";
-            if (vehicle.ParkingBrake)
-                brakeStatus = vehicle.IsHeld ? "Стояночный тормоз включён · P" : "Торможение до остановки · P";
-            else if (vehicle.IsHeld)
-                brakeStatus = "Автоудержание · W/S — тронуться";
-            GUI.Label(new Rect(35, 122, 340, 25), brakeStatus, small);
-            bool hasAmmunitionChoice = weapons.Current.AmmunitionCount > 1;
-            if (hasAmmunitionChoice)
+            if (Event.current.type != EventType.Repaint) return;
+            CombatHud.Frame frame = new CombatHud.Frame
             {
-                GUI.Box(new Rect(20, height - 111, 355, 37), "");
-                GUI.Label(new Rect(35, height - 107, 327, 27), $"{weapons.CurrentProjectile.Label}   ·   B — сменить", small);
+                Camera = input.SightCamera,
+                Hull = vehicle.transform,
+                Aiming = input.AimMode,
+                Hit = Time.time - rules.LastHitTime < 0.2f,
+                Speed = vehicle.Speed,
+                Weapon = weapons.Current.Label,
+                Ammunition = weapons.CurrentProjectile,
+                Reload = weapons.Reload,
+                WeaponStatus = weapons.GuidedRocketSelected && weapons.RocketInFlight ? "Ракета в полёте" : null,
+                VehicleStatus = vehicle.ParkingBrake ? (vehicle.IsHeld ? "Стояночный тормоз" : "Торможение") :
+                    vehicle.IsHeld ? "Автоудержание" : null,
+                Muzzle = weapons.MuzzlePosition,
+                ShotDirection = weapons.AimDirection,
+                Velocity = vehicle.Body.linearVelocity
+            };
+            combatHud.Draw(frame, DrawMode, DrawWeaponOverlay);
+        }
+
+        private void DrawMode(float width, float height)
+        {
+            combatHud.DrawModePanel(string.IsNullOrEmpty(locationName) ? PlaygroundText.ModeName(rules.Mode) : locationName,
+                rules.Mode == ChallengeMode.Free ? 2 : 3);
+            int row = 0;
+            if (rules.Mode != ChallengeMode.Free)
+            {
+                string progress = rules.Mode == ChallengeMode.Shooting
+                    ? $"Осталось {PlaygroundText.Seconds(rules.Remaining, "0.0")}   •   {FormatResult(rules.Score)}"
+                    : $"{PlaygroundText.Seconds(rules.Elapsed)}   •   Ворота {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}";
+                combatHud.DrawModeLine(row++, progress);
             }
-            GUI.Box(new Rect(20, height - 78, 355, 58), "");
-            string weaponStatus = weapons.GuidedRocketSelected && weapons.RocketInFlight ? "РАКЕТА В ПОЛЁТЕ" :
-                weapons.Reload > 0f ? "ПЕРЕЗАРЯДКА" : "МОЖНО СТРЕЛЯТЬ";
-            GUI.Label(new Rect(35, height - 71, 335, 25), weaponStatus, small);
-            GUI.Label(new Rect(185, height - 71, 180, 25), input.AimMode ? "C — ПРИЦЕЛЬНЫЙ ВИД" : "C — ТРЕТЬЕ ЛИЦО", small);
-            GUI.color = new Color(0.3f, 1f, 0.65f);
-            GUI.DrawTexture(new Rect(35, height - 40, 320 * (1f - weapons.Reload), 6), Texture2D.whiteTexture);
-            GUI.color = Color.white;
             string weaponKeys = weapons.HasGuidedRocket
                 ? "1 — пулемёт  2 — пушка  3 — гранатомёт  4 — ПТУР"
                 : "1 — пулемёт  2 — пушка  3 — гранатомёт";
             if (weapons.HasUnguidedRocket) weaponKeys += "  5 — НУРС";
             if (!weapons.HasMultipleWeapons) weaponKeys = "ЛКМ — выстрел";
-            float hintWidth = weapons.HasUnguidedRocket ? 482f : 400f;
-            GUI.Label(new Rect(width - hintWidth - 20f, height - 60, hintWidth, 50),
-                weaponKeys + "\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
+            combatHud.DrawModeLine(row++, weaponKeys);
+            string ammunitionKey = weapons.Current.AmmunitionCount > 1 ? "  ·  B — боеприпас" : "";
+            combatHud.DrawModeLine(row, "C — вид  ·  R — восстановление  ·  P — стоянка" + ammunitionKey);
             if (input.Range != null) DrawRange(input.Range, input.SightCamera, width, height);
-            GUI.color = Time.time - rules.LastHitTime < 0.2f ? Color.red : Color.white;
-            GUI.DrawTexture(new Rect(width / 2 - 13, height / 2, 9, 2), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(width / 2 + 5, height / 2, 9, 2), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(width / 2, height / 2 - 13, 2, 9), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(width / 2, height / 2 + 5, 2, 9), Texture2D.whiteTexture);
-            GUI.color = Color.white;
+            if (rules.Phase == SessionPhase.Countdown)
+                GUI.Label(new Rect(width / 2 - 125, height / 2 - 140, 250, 60), "ДО СТАРТА " + Mathf.CeilToInt(rules.Countdown), title);
+        }
+
+        private void DrawWeaponOverlay(float width, float height)
+        {
             if (weapons.GuidedRocketSelected)
             {
                 DrawRocketFuel(width * 0.5f, height * 0.5f);
@@ -179,9 +187,6 @@ namespace MadMachines
                 }
             }
             else if (weapons.UnguidedRocketSelected) DrawUnguidedRocketAmmo(width * 0.5f, height * 0.5f);
-            else if (Event.current.type == EventType.Repaint) DrawBallistics(input.SightCamera, scale, width, height);
-            if (rules.Phase == SessionPhase.Countdown)
-                GUI.Label(new Rect(width / 2 - 125, height / 2 - 140, 250, 60), "ДО СТАРТА " + Mathf.CeilToInt(rules.Countdown), title);
         }
 
         private void DrawUnguidedRocketAmmo(float centerX, float centerY)
@@ -307,34 +312,12 @@ namespace MadMachines
                     $"Стенд {plate.Distance} м · {plate.Thickness} ед. · {plate.Tilt}°\nT — толщина   ·   Y — наклон", small);
             }
             if (rules.Mode == ChallengeMode.Free)
-                GUI.Label(new Rect(width - 375, height - 84, 355, 26), "F — сброс мишеней", small);
+                GUI.Label(new Rect(width - 344, 166f, 324, 26), "F — сброс мишеней", small);
             if (input.AimMode && weapons.CurrentProjectile.IsShell)
             {
                 GUI.Box(new Rect(width * 0.5f - 146, height - 112, 292, 53), "");
                 GUI.Label(new Rect(width * 0.5f - 132, height - 108, 266, 47),
                     $"Прицел {range.ZeroDistance} м   ·   колесо мыши\nShift + колесо — шаг 5 м", small);
-            }
-        }
-
-        private void DrawBallistics(Camera view, float scale, float width, float height)
-        {
-            if (view == null || !input.AimMode) return;
-            ProjectileDefinition ammunition = weapons.CurrentProjectile;
-            if (!ammunition.IsShell) return;
-            Vector3 origin = weapons.MuzzlePosition;
-            Vector3 velocity = ammunition.LaunchVelocity(weapons.AimDirection, vehicle.Body.linearVelocity);
-            foreach (int distance in BallisticSight.Distances)
-            {
-                if (!BallisticSight.TryGetMark(view, origin, velocity, ammunition, distance, out Vector3 mark)) continue;
-                Vector2 point = new Vector2(mark.x, Screen.height - mark.y) / scale;
-                if (point.y < 28f || point.y > height - 40f || point.x < 24f || point.x > width - 48f) continue;
-                bool nearCenter = (point - new Vector2(width, height) * 0.5f).sqrMagnitude < 144f;
-                if (nearCenter) continue;
-                GUI.color = new Color(0f, 0f, 0f, 0.82f);
-                GUI.DrawTexture(new Rect(point.x - 12f, point.y - 1f, 24f, 4f), Texture2D.whiteTexture);
-                GUI.color = Color.white;
-                GUI.DrawTexture(new Rect(point.x - 11f, point.y, 22f, 2f), Texture2D.whiteTexture);
-                GUI.Label(new Rect(point.x + 15f, point.y - 11f, 63f, 24f), $"{distance} м", small);
             }
         }
 

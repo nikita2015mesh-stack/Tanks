@@ -21,6 +21,7 @@ namespace MadMachines.Networking
             public double RespawnAt;
             public float Health = MaxHealth;
             public DeathmatchStanding Standing;
+            public bool IsBot => Standing.isBot;
         }
 
         private readonly double endsAt;
@@ -35,7 +36,7 @@ namespace MadMachines.Networking
         public bool CanFight(double now) => !Finished && now < endsAt;
         public bool ResultsExpired(double now) => Finished && now >= finishedAt + ResultsRetention;
 
-        public void Add(Guid ticket, ulong clientId, int slot, VehicleDrive drive, NetworkObject vehicle)
+        public void Add(Guid ticket, ulong? clientId, int slot, VehicleDrive drive, NetworkObject vehicle)
         {
             participants.Add(new Participant
             {
@@ -43,7 +44,7 @@ namespace MadMachines.Networking
                 ClientId = clientId,
                 Drive = drive,
                 Vehicle = vehicle,
-                Standing = new DeathmatchStanding { slot = slot, health = MaxHealth }
+                Standing = new DeathmatchStanding { slot = slot, health = MaxHealth, isBot = !clientId.HasValue }
             });
             participants.Sort((first, second) => first.Standing.slot.CompareTo(second.Standing.slot));
         }
@@ -59,7 +60,7 @@ namespace MadMachines.Networking
             if (target.Health > 0) return;
             target.Standing.deaths++;
             target.RespawnAt = now + RespawnDelay;
-            if (target.ClientId.HasValue) target.Standing.status = DeathmatchPlayerStatus.Respawning;
+            if (target.ClientId.HasValue || target.IsBot) target.Standing.status = DeathmatchPlayerStatus.Respawning;
             Participant shooter = Find(shooterSlot);
             if (shooter != null && shooter != target) shooter.Standing.kills++;
         }

@@ -8,6 +8,7 @@ namespace MadMachines.Networking
     [RequireComponent(typeof(VehiclePhysics))]
     public sealed class NetworkVehicle : NetworkBehaviour
     {
+        private const double RecoveryCooldown = 15;
         // The T100 chassis uses Ignore Raycast so its own suspension probes miss it.
         internal const int HitLayers = (1 << 0) | (1 << 2);
         [SerializeField] private VehicleDefinition definition;
@@ -18,6 +19,7 @@ namespace MadMachines.Networking
         private readonly NetworkVariable<float> speed = new NetworkVariable<float>();
         private readonly NetworkVariable<int> hits = new NetworkVariable<int>();
         private readonly NetworkVariable<int> shots = new NetworkVariable<int>();
+        private readonly NetworkVariable<double> reloadEndsAt = new NetworkVariable<double>();
         private readonly NetworkCommandBuffer commands = new NetworkCommandBuffer();
         private readonly int[] rejected = new int[7];
         private VehiclePhysics vehicle;
@@ -37,6 +39,10 @@ namespace MadMachines.Networking
         private int initialSlot;
         private ulong initialController;
         private NetworkSandboxSession match;
+        private DeathmatchBot bot;
+        private bool recoveryRequested;
+        private double nextRecovery;
+        private uint recoveryCount;
 
         public string CommandDiagnostics =>
             $"accepted={accepted}, rate_limited={rejected[(int)CommandRejection.Rate]}, " +
@@ -53,6 +59,12 @@ namespace MadMachines.Networking
         public string DefinitionId => definition.Id;
         public string DisplayName => definition.DisplayName;
         public Vector3 MuzzlePosition => weapons.MuzzlePosition;
+        internal Vector3 MountPosition => weapons.MountPosition;
+        internal Vector3 ShotDirection => weapons.AimDirection;
+        internal WeaponDefinition Weapon => weapons.Current;
+        internal ProjectileDefinition Ammunition => projectilePrefab.Definition.GetProjectile();
+        internal float Reload => Mathf.Clamp01((float)(reloadEndsAt.Value - NetworkManager.ServerTime.Time) / Weapon.Interval);
+        internal Vector3 PresentedVelocity { get; private set; }
         public Rigidbody Body => vehicle.Body;
 
         public void Configure(VehicleDefinition vehicleDefinition, NetworkBallisticProjectile projectile)
@@ -97,6 +109,8 @@ namespace MadMachines.Networking
             match = deathmatch;
         }
 
+        internal void EnableBot() => bot = new DeathmatchBot();
+
         internal void SetController(ulong clientId)
         {
             controller.Value = clientId;
@@ -104,6 +118,7 @@ namespace MadMachines.Networking
             hadFreshInput = false;
             appliedSequence = 0;
             hasAppliedInput = false;
+            recoveryRequested = false;
         }
 
         public override void OnNetworkSpawn()
@@ -114,11 +129,15 @@ namespace MadMachines.Networking
             System.Array.Clear(rejected, 0, rejected.Length);
             accepted = timeouts = 0;
             hadFreshInput = false;
+            recoveryRequested = false;
+            nextRecovery = 0;
+            recoveryCount = 0;
             weapons.ResetReload();
             nextSpeedUpdate = 0;
             nextCollision = 0;
             nextDiagnostic = Time.realtimeSinceStartupAsDouble + 5;
             vehicle.Authority = IsServer;
+            vehicle.SlopeHoldEnabled = true;
             vehicle.enabled = IsServer;
             weapons.Authority = IsServer;
             if (IsServer)
@@ -126,6 +145,7 @@ namespace MadMachines.Networking
                 controller.Value = initialController;
                 slot.Value = initialSlot;
                 drive.Value = vehicle.DriveMode;
+                reloadEndsAt.Value = 0d;
             }
             else if (IsClient && !Application.isBatchMode)
             {
@@ -155,6 +175,20 @@ namespace MadMachines.Networking
             if (IsLocalController && isActiveAndEnabled && !NetworkManager.ShutdownInProgress) SubmitCommandRpc(command);
         }
 
+        internal void RequestRecovery()
+        {
+            if (IsLocalController && isActiveAndEnabled && !NetworkManager.ShutdownInProgress)
+                RequestRecoveryRpc();
+        }
+
+        [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+        private void RequestRecoveryRpc(RpcParams rpcParams = default)
+        {
+            if (IsServer && IsSpawned && isActiveAndEnabled && match != null && !NetworkManager.ShutdownInProgress &&
+                ControllerClientId != NetworkManager.ServerClientId && rpcParams.Receive.SenderClientId == ControllerClientId)
+                recoveryRequested = true;
+        }
+
         [Rpc(SendTo.Server, Delivery = RpcDelivery.Unreliable, InvokePermission = RpcInvokePermission.Everyone)]
         private void SubmitCommandRpc(NetworkVehicleCommand command, RpcParams rpcParams = default)
         {
@@ -173,19 +207,40 @@ namespace MadMachines.Networking
             if (!IsSpawned || !IsServer || NetworkManager.ShutdownInProgress) return;
             double now = Time.realtimeSinceStartupAsDouble;
             bool fresh = commands.Sample(now, out NetworkVehicleCommand latest);
-            fresh = fresh && (match == null || match.CanFight(now));
+            bool canFight = match == null || match.CanFight(now);
+            if (recoveryRequested)
+            {
+                recoveryRequested = false;
+                if (canFight && now >= nextRecovery && match.TryRecoverVehicle(this))
+                {
+                    nextRecovery = now + RecoveryCooldown;
+                    recoveryCount++;
+                    fresh = false;
+                    commands.ClearInput();
+                }
+            }
+            if (canFight && bot != null)
+                fresh = bot.TryGetCommand(this, match.FindTrainingOpponent(Slot), now, out latest);
+            fresh = fresh && canFight;
             if (!fresh && hadFreshInput) timeouts++;
             hadFreshInput = fresh;
             vehicle.Submit(fresh ? latest.Movement : new VehicleCommand { Handbrake = true });
             if (fresh)
             {
-                appliedSequence = latest.Sequence;
-                hasAppliedInput = true;
-                weapons.Aim(latest.Aim);
-                if (latest.Fire && weapons.RequestFire(launcher))
+                if (bot == null)
                 {
-                    shots.Value++;
-                    ShowMuzzleFlashRpc(weapons.MuzzlePosition, weapons.AimDirection);
+                    appliedSequence = latest.Sequence;
+                    hasAppliedInput = true;
+                }
+                weapons.Aim(latest.Aim);
+                if (latest.Fire && weapons.Reload <= 0f)
+                {
+                    if (weapons.RequestFire(launcher))
+                    {
+                        shots.Value++;
+                        ShowMuzzleFlashRpc(weapons.MuzzlePosition, weapons.AimDirection);
+                    }
+                    reloadEndsAt.Value = NetworkManager.ServerTime.Time + weapons.Reload * Weapon.Interval;
                 }
             }
             if (now >= nextSpeedUpdate)
@@ -233,6 +288,7 @@ namespace MadMachines.Networking
 
         internal void CapturePresentation(ref NetworkPhysicsPose pose)
         {
+            pose.RecoveryCount = recoveryCount;
             pose.ControllerClientId = ControllerClientId;
             pose.AppliedSequence = appliedSequence;
             pose.HasAppliedInput = hasAppliedInput;
@@ -248,6 +304,7 @@ namespace MadMachines.Networking
         internal void ApplyPresentation(NetworkPhysicsPose pose)
         {
             if (pose.Wheels.Length != vehicle.WheelCount) return;
+            PresentedVelocity = pose.LinearVelocity;
             weapons.ApplyAimAngles(pose.AimAngles);
             for (int i = 0; i < pose.Wheels.Length; i++)
             {

@@ -382,7 +382,9 @@ namespace MadMachines
                 }
             }
             else if (!launch(definition, position, direction, vehicle, shotId)) return false;
-            vehicle.Body.AddForceAtPosition(-direction * definition.Recoil, position, ForceMode.Impulse);
+            Rigidbody chassis = vehicle.Body;
+            Vector3 recoilPoint = Vector3.Lerp(chassis.worldCenterOfMass, position, 0.35f);
+            chassis.AddForceAtPosition(-direction * definition.Recoil, recoilPoint, ForceMode.Impulse);
             if (launch == null)
                 PlaygroundEffects.ShowShot(gameObject.scene, ammunition, position, shotMuzzle.forward);
             Fired?.Invoke();

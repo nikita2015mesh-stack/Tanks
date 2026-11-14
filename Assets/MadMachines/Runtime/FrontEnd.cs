@@ -6,7 +6,7 @@ namespace MadMachines
 {
     public sealed class FrontEnd : MonoBehaviour
     {
-        private enum Page { Main, Garage, Modules }
+        private enum Page { Main, Server, Garage, Modules, TestDrive }
         private enum Dialog { None, GarageChanges, Quit }
         private enum Module { None, Weapon, Turret, Engine, RunningGear }
         private static readonly string[] LocalMapScenes = { GameFlow.AsphaltTrackScene, GameFlow.DirtTrackScene, GameFlow.ShootingRangeScene };
@@ -43,9 +43,7 @@ namespace MadMachines
         private VehicleDefinition draftVehicle;
         private VehicleDrive draftDrive;
         private GarageLoadout draftLoadout;
-        private Module armedModule;
         private Module openModule;
-        private double moduleClickTime;
         private int localMap;
         private bool rotate = true;
         private string address;
@@ -58,7 +56,6 @@ namespace MadMachines
         private GUIStyle moduleCheckmark;
         private Texture2D moduleIcons;
         private string moduleHint;
-        private Vector2 scroll;
         private Transform preview;
         private Camera previewCamera;
         private Vector3 previewCenter;
@@ -176,7 +173,9 @@ namespace MadMachines
             if (dialog != Dialog.None) dialog = Dialog.None;
             else if (settings.IsOpen) settings.Close();
             else if (page == Page.Modules) BackFromModules();
+            else if (page == Page.TestDrive) page = Page.Garage;
             else if (page == Page.Garage) LeaveGarage();
+            else if (page == Page.Server) CloseServerSettings();
             else if (GameFlow.Lobby.WantsMatch) GameFlow.Lobby.SetWaiting(false);
             else dialog = Dialog.Quit;
         }
@@ -246,13 +245,16 @@ namespace MadMachines
             GUI.enabled = !GameFlow.Loading && dialog == Dialog.None;
             GUI.Box(new Rect(24, 24, 510, 672), "");
             GUILayout.BeginArea(new Rect(44, 38, 470, 642));
-            scroll = GUILayout.BeginScrollView(scroll);
-            GUILayout.Label("БЕЗУМНЫЕ МАШИНЫ", heading);
-            if (settings.IsOpen) settings.Draw();
+            if (settings.IsOpen)
+            {
+                GUILayout.Label("НАСТРОЙКИ", heading);
+                settings.Draw();
+            }
             else if (page == Page.Garage) DrawGarage();
             else if (page == Page.Modules) DrawModules();
+            else if (page == Page.Server) DrawServerSettings();
+            else if (page == Page.TestDrive) DrawTestDrive();
             else DrawMain();
-            GUILayout.EndScrollView();
             GUILayout.EndArea();
             if (preview != null)
             {
@@ -272,18 +274,19 @@ namespace MadMachines
 
         private void DrawMain()
         {
+            GUILayout.Label("БЕЗУМНЫЕ МАШИНЫ", heading);
             VehicleDefinition current = GameFlow.CurrentVehicle;
             GUILayout.Label(current != null ? current.DisplayName : "Нет доступной машины", label);
             string drive = current != null && current.Prefab.TrackedDrive ? "Гусеничный" : DriveNames[(int)GameFlow.SelectedDrive - 1];
             GUILayout.Label("Привод: " + drive, label);
+            GUILayout.Space(8);
+            DrawMatchmaking();
+            DrawNotice();
+            GUILayout.FlexibleSpace();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("ГАРАЖ", button)) OpenGarage();
             if (GUILayout.Button("НАСТРОЙКИ", button)) settings.Open();
             GUILayout.EndHorizontal();
-            DrawNotice();
-            GUILayout.Space(8);
-            DrawOnline();
-            GUILayout.Space(8);
             if (GUILayout.Button("ВЫХОД", button)) dialog = Dialog.Quit;
         }
 
@@ -294,39 +297,52 @@ namespace MadMachines
             if (GUILayout.Button("ЗАКРЫТЬ СООБЩЕНИЕ")) GameFlow.ClearNotice();
         }
 
-        private void DrawOnline()
+        private void DrawServerSettings()
         {
-            GUILayout.Label("Адрес сервера и игровой порт", label);
+            GUILayout.Label("ПОДКЛЮЧЕНИЕ", heading);
+            GUILayout.Label("IPv4 и игровой порт", label);
             GUILayout.BeginHorizontal();
             address = GUILayout.TextField(address, 45, GUILayout.Height(30));
             port = GUILayout.TextField(port, 5, GUILayout.Width(80), GUILayout.Height(30));
             GUILayout.EndHorizontal();
-            bool changed = address != GameFlow.Lobby.Address || port != GameFlow.Lobby.Port.ToString();
-            if (changed && GUILayout.Button("СОХРАНИТЬ АДРЕС", button))
+            if (GUILayout.Button("СОХРАНИТЬ АДРЕС", button))
             {
                 invalidEndpoint = !GameFlow.Lobby.Configure(address, port);
-                if (!invalidEndpoint) SaveServerAddress();
+                if (!invalidEndpoint)
+                {
+                    SaveServerAddress();
+                    CloseServerSettings();
+                }
             }
             if (invalidEndpoint) GUILayout.Label("Укажите IPv4 и игровой порт от 1 до 65534.", label);
-
-            DrawMatchmaking(!changed);
+            if (GUILayout.Button("НАЗАД", button)) CloseServerSettings();
         }
 
-        private void DrawMatchmaking(bool endpointApplied)
+        private void CloseServerSettings()
+        {
+            address = PlayerPrefs.GetString("MadMachines.Server.Address.v1", "127.0.0.1");
+            port = PlayerPrefs.GetString("MadMachines.Server.Port.v1", "7777");
+            invalidEndpoint = false;
+            page = Page.Main;
+        }
+
+        private void DrawMatchmaking()
         {
             MatchLobbyClient lobby = GameFlow.Lobby;
-            bool connected = endpointApplied && lobby.Connected;
+            bool connected = lobby.Connected;
             GUILayout.BeginHorizontal();
             Color color = GUI.contentColor;
             GUI.contentColor = connected ? new Color(0.3f, 0.9f, 0.43f) : new Color(1f, 0.4f, 0.4f);
             GUILayout.Label("●", label, GUILayout.Width(20));
             GUI.contentColor = color;
             GUILayout.Label(connected ? "Сервер подключён" : "Нет связи с сервером", label);
+            if (!lobby.WantsMatch && GUILayout.Button("АДРЕС СЕРВЕРА", GUILayout.Width(135f), GUILayout.Height(26f)))
+                page = Page.Server;
             GUILayout.EndHorizontal();
-            GUILayout.Label("Deathmatch", label);
             if (lobby.WantsMatch)
             {
                 GUILayout.Label(lobby.Phase == MatchLobbyPhase.Loading ? "Состав собран. Готовим карту…" :
+                    lobby.WantsBot ? "Ожидаем свободный сервер для боя с ботом…" :
                     $"Ожидаем игроков {lobby.Players}/{lobby.RequiredPlayers}", label);
                 if (GUILayout.Button("ОТМЕНИТЬ ОЖИДАНИЕ", button)) lobby.SetWaiting(false);
                 return;
@@ -334,8 +350,13 @@ namespace MadMachines
 
             bool interactable = GUI.enabled;
             GUI.enabled = interactable && connected && GameFlow.CurrentVehicle != null;
-            if (GUILayout.Button("В БОЙ", button)) lobby.SetWaiting(true);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("В БОЙ ВДВОЁМ", button)) lobby.SetWaiting(true);
+            if (GUILayout.Button("БОЙ С БОТОМ", button)) lobby.SetWaiting(true, withBot: true);
+            GUILayout.EndHorizontal();
             GUI.enabled = interactable;
+            GUILayout.Label("Deathmatch · T100 со штатной пушкой", label);
+            GUILayout.Label("Привод берётся из гаража", label);
         }
 
         private void SaveServerAddress()
@@ -352,7 +373,6 @@ namespace MadMachines
             draftDrive = GameFlow.SelectedDrive;
             draftLoadout = GameFlow.SelectedLoadout;
             page = Page.Garage;
-            scroll = Vector2.zero;
         }
 
         private void DrawGarage()
@@ -360,12 +380,12 @@ namespace MadMachines
             bool interactable = GUI.enabled;
             GUILayout.Label("ГАРАЖ", heading);
             DrawVehicleSelection();
-            DrawNotice();
             GUILayout.Label("ПРИВОД", label);
             bool tracked = draftVehicle != null && draftVehicle.Prefab.TrackedDrive;
             if (tracked) GUILayout.Label("Гусеничный", label);
             else draftDrive = (VehicleDrive)(GUILayout.Toolbar((int)draftDrive - 1, DriveNames, button) + 1);
             GUILayout.Label(Dirty ? "Есть неприменённые изменения" : "Текущая конфигурация сохранена", label);
+            GUILayout.BeginHorizontal();
             GUI.enabled = interactable && draftVehicle != null && Dirty;
             if (GUILayout.Button("ПРИМЕНИТЬ", button)) ApplyGarage();
             GUI.enabled = interactable;
@@ -376,8 +396,11 @@ namespace MadMachines
                 draftLoadout = default;
                 if (previewChanged) BuildPreview(draftVehicle, draftLoadout);
             }
+            GUILayout.EndHorizontal();
             GUILayout.Space(8);
-            DrawTestDrive();
+            if (GUILayout.Button("ПРОБНЫЙ ЗАЕЗД", button)) page = Page.TestDrive;
+            DrawNotice();
+            GUILayout.FlexibleSpace();
             if (GUILayout.Button("НА ГЛАВНЫЙ", button)) LeaveGarage();
         }
 
@@ -395,14 +418,9 @@ namespace MadMachines
             {
                 bool selected = definition == draftVehicle;
                 GUI.backgroundColor = selected ? new Color(0.42f, 0.9f, 0.64f) : background;
-                bool clicked = GUILayout.Button(selected ? $"✓  {definition.DisplayName}  ›  Модули" : definition.DisplayName, button);
+                bool clicked = GUILayout.Button(selected ? $"✓  {definition.DisplayName}" : definition.DisplayName, button);
                 GUI.backgroundColor = background;
-                if (!clicked) continue;
-                if (selected)
-                {
-                    ShowModules();
-                    continue;
-                }
+                if (!clicked || selected) continue;
 
                 draftVehicle = definition;
                 draftDrive = GameFlow.ReadDrive(definition);
@@ -416,29 +434,20 @@ namespace MadMachines
         private void ShowModules()
         {
             page = Page.Modules;
-            openModule = armedModule = Module.None;
-            scroll = Vector2.zero;
+            openModule = Module.None;
         }
 
         private void BackFromModules()
         {
-            if (openModule != Module.None)
-            {
-                openModule = armedModule = Module.None;
-            }
-            else
-            {
-                page = Page.Garage;
-                armedModule = Module.None;
-            }
-            scroll = Vector2.zero;
+            if (openModule != Module.None) openModule = Module.None;
+            else page = Page.Garage;
         }
 
         private void DrawModules()
         {
             GUILayout.Label(draftVehicle.DisplayName + " · Модули", heading);
             moduleHint = null;
-            if (openModule == Module.None) DrawModuleDiagram();
+            if (openModule == Module.None) DrawModuleList();
             else DrawModuleOptions();
             GUILayout.Label(moduleHint ?? "", label, GUILayout.Height(42f));
 
@@ -450,53 +459,14 @@ namespace MadMachines
             if (GUILayout.Button(openModule == Module.None ? "В ГАРАЖ" : "НАЗАД К МОДУЛЯМ", button)) BackFromModules();
         }
 
-        private void DrawModuleDiagram()
+        private void DrawModuleList()
         {
-            GUILayout.Label("Дважды нажми на модуль, чтобы открыть его варианты.", label);
-            const float cardHeight = 70f;
-            const float cardStep = 78f;
-            Rect diagram = GUILayoutUtility.GetRect(0f, GarageModules.Length * cardStep, GUILayout.ExpandWidth(true));
-            float split = diagram.x + diagram.width * 0.47f;
-            float center = diagram.y + diagram.height * 0.5f;
-            float cards = split + 24f;
-            GUI.Box(new Rect(diagram.x, center - 38f, split - diagram.x - 18f, 76f), draftVehicle.DisplayName);
-
-            if (Event.current.type == EventType.Repaint)
+            foreach (Module module in GarageModules)
             {
-                Color previous = GUI.color;
-                GUI.color = new Color(0.52f, 0.65f, 0.71f);
-                GUI.DrawTexture(new Rect(split, diagram.y + cardStep / 2f, 1f, (GarageModules.Length - 1) * cardStep), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(split - 18f, center, 18f, 1f), Texture2D.whiteTexture);
-                for (int i = 0; i < GarageModules.Length; i++)
-                    GUI.DrawTexture(new Rect(split, diagram.y + (i + 0.5f) * cardStep, 24f, 1f), Texture2D.whiteTexture);
-                GUI.color = previous;
+                Rect card = GUILayoutUtility.GetRect(0f, 70f, GUILayout.ExpandWidth(true));
+                if (DrawModuleCard(card, CurrentModuleIcon(module), ModuleName(module) + " · " + ModuleValue(module),
+                    false, false)) openModule = module;
             }
-
-            for (int i = 0; i < GarageModules.Length; i++)
-            {
-                Module module = GarageModules[i];
-                float cardY = diagram.y + (i + 0.5f) * cardStep - cardHeight / 2f;
-                Rect card = new Rect(cards, cardY, diagram.xMax - cards, cardHeight);
-                bool clicked = DrawModuleCard(card, CurrentModuleIcon(module), ModuleName(module) + " · " + ModuleValue(module),
-                    armedModule == module, true);
-                if (!clicked) continue;
-
-                double now = Time.unscaledTimeAsDouble;
-                if (armedModule == module && now - moduleClickTime <= 0.6) OpenModule(module);
-                armedModule = module;
-                moduleClickTime = now;
-            }
-
-            bool enabled = GUI.enabled;
-            GUI.enabled = enabled && armedModule != Module.None;
-            if (GUILayout.Button("ОТКРЫТЬ МОДУЛЬ", button)) OpenModule(armedModule);
-            GUI.enabled = enabled;
-        }
-
-        private void OpenModule(Module module)
-        {
-            openModule = module;
-            scroll = Vector2.zero;
         }
 
         private string ModuleName(Module module) => module switch
@@ -672,7 +642,8 @@ namespace MadMachines
         private void DrawTestDrive()
         {
             bool interactable = GUI.enabled;
-            GUILayout.Label("ПРОБНЫЙ ЗАЕЗД", label);
+            GUILayout.Label("ПРОБНЫЙ ЗАЕЗД", heading);
+            if (draftVehicle != null) GUILayout.Label(draftVehicle.DisplayName, label);
             localMap = GUILayout.SelectionGrid(localMap, LocalMapNames, 1, button);
             GUI.enabled = interactable && draftVehicle != null;
             if (GUILayout.Button(Dirty ? "ПРИМЕНИТЬ И ВЫЕХАТЬ" : "ВЫЕХАТЬ", button))
@@ -684,6 +655,7 @@ namespace MadMachines
                 GameFlow.StartLocal(scene, ChallengeMode.Free, fromGarage: true);
             }
             GUI.enabled = interactable;
+            if (GUILayout.Button("В ГАРАЖ", button)) page = Page.Garage;
         }
 
         private void ApplyGarage() => GameFlow.ApplyVehicle(draftVehicle, draftDrive, draftLoadout);

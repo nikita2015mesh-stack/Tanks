@@ -24,6 +24,7 @@ namespace MadMachines.Networking
         private Vector3 positionOffset;
         private Quaternion rotationOffset = Quaternion.identity;
         private ulong lastServerStep;
+        private uint lastRecoveryCount;
         private uint discardedSequence;
         private bool historyTruncated;
         private bool initialized;
@@ -87,6 +88,12 @@ namespace MadMachines.Networking
         public void Advance(NetworkPhysicsPose authoritative, NetworkVehicleCommand input)
         {
             float step = Time.fixedDeltaTime;
+            if (authoritative.RecoveryCount != lastRecoveryCount)
+            {
+                lastRecoveryCount = authoritative.RecoveryCount;
+                pending.Clear();
+                historyTruncated = initialized = ready = false;
+            }
             if (!initialized || authoritative.PhysicsStep != lastServerStep)
             {
                 lastServerStep = authoritative.PhysicsStep;
@@ -200,6 +207,7 @@ namespace MadMachines.Networking
         {
             NetworkPhysicsPose pose = new NetworkPhysicsPose
             {
+                RecoveryCount = lastRecoveryCount,
                 Position = body.position,
                 Rotation = body.rotation,
                 LinearVelocity = body.linearVelocity,

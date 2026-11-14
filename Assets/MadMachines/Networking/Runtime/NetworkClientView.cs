@@ -19,6 +19,11 @@ namespace MadMachines.Networking
         private string port;
         private float yaw;
         private float pitch = 12f;
+        private bool aiming;
+        private float aimBlend;
+        private Vector3 chasePosition;
+        private Collider[] hullColliders;
+        private uint cameraRecoveryCount;
         private double resumeCommandsAt;
         private double fireUntil;
         private uint sequence;
@@ -32,6 +37,7 @@ namespace MadMachines.Networking
         private bool waitForFireRelease = true;
         private CameraComparison cameraComparison;
         private readonly GameSettingsPanel settings = new GameSettingsPanel();
+        private readonly CombatHud combatHud = new CombatHud();
         public bool ReadyForPlay => localVehicle != null && localVehicle.IsSpawned;
         public string CameraComparisonName => cameraComparison switch
         {
@@ -81,10 +87,15 @@ namespace MadMachines.Networking
                 if (localState != null) localState.StopPrediction();
                 localVehicle = current;
                 localState = current != null ? current.GetComponent<NetworkPhysicsState>() : null;
+                cameraRecoveryCount = localState != null ? localState.PresentedRecoveryCount : 0;
                 aimedVehicle = null;
                 fireUntil = 0;
                 movement = new VehicleCommand { Handbrake = true };
                 cameraComparison = CameraComparison.Smoothed;
+                aiming = false;
+                aimBlend = 0f;
+                view.fieldOfView = 65f;
+                hullColliders = current != null ? current.GetComponentsInChildren<Collider>() : null;
                 if (current != null)
                 {
                     localSlot = current.Slot;
@@ -135,6 +146,9 @@ namespace MadMachines.Networking
                 else CaptureCursor();
             }
             bool controlling = hasFocus && Cursor.lockState == CursorLockMode.Locked;
+            if (controlling && keyboard != null && keyboard.cKey.wasPressedThisFrame) aiming = !aiming;
+            if (controlling && session.MatchGame && keyboard != null && keyboard.rKey.wasPressedThisFrame)
+                localVehicle.RequestRecovery();
             if (controlling && mouse != null)
             {
                 Vector2 delta = GameSettings.AdjustLook(mouse.delta.ReadValue());
@@ -224,7 +238,10 @@ namespace MadMachines.Networking
 
         private void LateUpdate()
         {
-            if (localVehicle != null && view != null) MoveCamera(false);
+            if (localVehicle == null || view == null) return;
+            uint recovered = localState.PresentedRecoveryCount;
+            MoveCamera(recovered != cameraRecoveryCount);
+            cameraRecoveryCount = recovered;
         }
 
         private Vector3 AimDirection()
@@ -248,7 +265,7 @@ namespace MadMachines.Networking
         private void MoveCamera(bool snap)
         {
             Quaternion rotation = Quaternion.Euler(pitch, yaw, 0f);
-            if (!snap && cameraComparison == CameraComparison.Stationary)
+            if (!snap && cameraComparison == CameraComparison.Stationary && !aiming && aimBlend == 0f)
             {
                 view.transform.rotation = rotation;
                 return;
@@ -261,8 +278,17 @@ namespace MadMachines.Networking
                 if (hit.rigidbody != localVehicle.Body) distance = Mathf.Min(distance, Mathf.Max(0.3f, hit.distance - 0.15f));
             }
             Vector3 position = pivot + offset.normalized * distance;
-            view.transform.position = snap || cameraComparison == CameraComparison.Direct ? position :
-                Vector3.Lerp(view.transform.position, position, 1f - Mathf.Exp(-15f * Time.unscaledDeltaTime));
+            chasePosition = snap || cameraComparison == CameraComparison.Direct ? position :
+                Vector3.Lerp(chasePosition, position, 1f - Mathf.Exp(-15f * Time.unscaledDeltaTime));
+            aimBlend = Mathf.MoveTowards(aimBlend, aiming ? 1f : 0f, Time.unscaledDeltaTime / VehicleCamera.AimTransitionSeconds);
+            float blend = Mathf.SmoothStep(0f, 1f, aimBlend);
+            view.fieldOfView = Mathf.Lerp(65f, VehicleCamera.DefaultAimFieldOfView, blend);
+            view.transform.position = chasePosition;
+            if (blend > 0f)
+            {
+                Vector3 aimPosition = VehicleCamera.GetAimPosition(localVehicle.MountPosition, rotation * Vector3.forward, hullColliders);
+                view.transform.position = VehicleCamera.ClearHull(Vector3.Lerp(chasePosition, aimPosition, blend), hullColliders);
+            }
             view.transform.rotation = rotation;
         }
 
@@ -309,22 +335,26 @@ namespace MadMachines.Networking
             if (Application.CanStreamedLevelBeLoaded(GameFlow.FrontEndScene) && GUILayout.Button("НА ГЛАВНЫЙ")) session.LeaveToMain();
             GUILayout.Label("WASD — движение · Пробел — ручник\nМышь — наведение · ЛКМ — пушка\nEsc — освободить курсор; сервер продолжает игру.");
             GUILayout.EndArea();
-            if (localVehicle != null) DrawCrosshair();
+            if (ReadyForPlay && Cursor.lockState == CursorLockMode.Locked)
+                DrawCombatHud(null);
         }
 
         private void DrawDeathmatch()
         {
             ServerSessionInfo info = session.SessionInfo;
             bool finished = session.HasResults;
-            bool playing = !finished && ReadyForPlay && Cursor.lockState == CursorLockMode.Locked;
-            if (playing) DrawCrosshair();
+            if (!finished && ReadyForPlay && Cursor.lockState == CursorLockMode.Locked)
+            {
+                DrawCombatHud(info);
+                return;
+            }
             float scale = Mathf.Max(0.1f, Mathf.Min(Screen.width / 1280f, Screen.height / 720f));
             Matrix4x4 previous = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
             Rect panel = finished ? new Rect((Screen.width / scale - 420f) / 2f, 130f, 420f, 460f) : new Rect(16f, 16f, 420f, 690f);
             GUILayout.BeginArea(panel);
             GUILayout.BeginVertical(GUI.skin.box);
-            if (!finished && !playing && settings.IsOpen) settings.Draw();
+            if (!finished && settings.IsOpen) settings.Draw();
             else
             {
                 GUILayout.Label(finished ? "ИТОГИ МАТЧА" : $"{session.LocationName} · Deathmatch");
@@ -338,24 +368,55 @@ namespace MadMachines.Networking
                         DeathmatchStanding self = System.Array.Find(info.standings, row => row.slot == localSlot.Value);
                         if (self != null) DrawHealthBar(self.health, info.DeathmatchMaxHealth);
                     }
-                    if (ReadyForPlay) GUILayout.Label($"{localVehicle.Speed:0} км/ч · Пушка");
                 }
                 if (info?.standings != null) DrawStandings(info.standings, finished);
-                if (!playing)
+                if (!finished)
                 {
-                    if (!finished)
-                    {
-                        GUILayout.Label(ReadyForPlay ? "МЕНЮ СЕССИИ · БОЙ ПРОДОЛЖАЕТСЯ" :
-                            session.Manager.IsConnectedClient ? "Ожидание машины…" : session.Status);
-                        if (ReadyForPlay && GUILayout.Button("ПРОДОЛЖИТЬ", GUILayout.Height(43))) CaptureCursor();
-                        if (GUILayout.Button("НАСТРОЙКИ", GUILayout.Height(43))) settings.Open();
-                    }
-                    if (GUILayout.Button("НА ГЛАВНЫЙ", GUILayout.Height(43))) session.LeaveToMain();
+                    GUILayout.Label(ReadyForPlay ? "МЕНЮ СЕССИИ · БОЙ ПРОДОЛЖАЕТСЯ" :
+                        session.Manager.IsConnectedClient ? "Ожидание машины…" : session.Status);
+                    if (ReadyForPlay && GUILayout.Button("ПРОДОЛЖИТЬ", GUILayout.Height(43))) CaptureCursor();
+                    if (GUILayout.Button("НАСТРОЙКИ", GUILayout.Height(43))) settings.Open();
                 }
+                if (GUILayout.Button("НА ГЛАВНЫЙ", GUILayout.Height(43))) session.LeaveToMain();
             }
             GUILayout.EndVertical();
             GUILayout.EndArea();
             GUI.matrix = previous;
+        }
+
+        private void DrawCombatHud(ServerSessionInfo info)
+        {
+            if (Event.current.type != EventType.Repaint) return;
+            DeathmatchStanding self = info?.standings != null && localSlot.HasValue
+                ? System.Array.Find(info.standings, row => row.slot == localSlot.Value) : null;
+            CombatHud.Frame frame = new CombatHud.Frame
+            {
+                Camera = view,
+                Hull = localVehicle.transform,
+                Aiming = aiming,
+                Speed = localVehicle.Speed,
+                Health = self?.health ?? 0,
+                MaxHealth = self != null ? info.DeathmatchMaxHealth : 0,
+                Weapon = localVehicle.Weapon.Label,
+                Ammunition = localVehicle.Ammunition,
+                Reload = localVehicle.Reload,
+                Muzzle = localVehicle.MuzzlePosition,
+                ShotDirection = localVehicle.ShotDirection,
+                Velocity = localVehicle.PresentedVelocity
+            };
+            combatHud.Draw(frame, session.MatchGame ? DrawMatchStatus : null, DrawAimedTeam);
+        }
+
+        private void DrawMatchStatus(float width, float height)
+        {
+            ServerSessionInfo info = session.SessionInfo;
+            int seconds = session.MatchSecondsLeft;
+            int count = info?.standings?.Length ?? 0;
+            combatHud.DrawModePanel($"{session.LocationName} · Deathmatch", count + 2);
+            combatHud.DrawModeLine(0, $"До конца матча  {seconds / 60:00}:{seconds % 60:00}");
+            for (int i = 0; i < count; i++)
+                combatHud.DrawModeLine(i + 1, FormatStanding(info.standings[i], false));
+            combatHud.DrawModeLine(count + 1, "C — вид  ·  R — восстановление");
         }
 
         private void DrawHealthBar(int health, int maxHealth)
@@ -385,28 +446,28 @@ namespace MadMachines.Networking
         private void DrawStandings(DeathmatchStanding[] standings, bool finished)
         {
             foreach (DeathmatchStanding row in standings)
-            {
-                string status = row.status switch
-                {
-                    DeathmatchPlayerStatus.Left => "Вышел",
-                    DeathmatchPlayerStatus.Disconnected => "Нет связи",
-                    DeathmatchPlayerStatus.Respawning => "Возрождается",
-                    _ => "В бою"
-                };
-                string suffix = finished && row.status != DeathmatchPlayerStatus.Left ? string.Empty : $" · {status}";
-                string name = row.slot == localSlot ? $"{row.Name} (вы)" : row.Name;
-                GUILayout.Label($"{name} · Уничтожения: {row.kills} · Смерти: {row.deaths}{suffix}");
-            }
+                GUILayout.Label(FormatStanding(row, finished));
         }
 
-        private void DrawCrosshair()
+        private string FormatStanding(DeathmatchStanding row, bool finished)
         {
-            float x = Screen.width / 2f;
-            float y = Screen.height / 2f;
-            GUI.Label(new Rect(x - 5f, y - 10f, 20f, 20f), "+");
-            if (Cursor.lockState != CursorLockMode.Locked || aimedVehicle == null || !aimedVehicle.IsSpawned) return;
+            string status = row.status switch
+            {
+                DeathmatchPlayerStatus.Left => "Вышел",
+                DeathmatchPlayerStatus.Disconnected => "Нет связи",
+                DeathmatchPlayerStatus.Respawning => "Возрождается",
+                _ => "В бою"
+            };
+            string suffix = finished && row.status != DeathmatchPlayerStatus.Left ? string.Empty : $" · {status}";
+            string name = row.slot == localSlot ? $"{row.Name} (вы)" : row.Name;
+            return $"{name} · Уничтожения: {row.kills} · Смерти: {row.deaths}{suffix}";
+        }
+
+        private void DrawAimedTeam(float width, float height)
+        {
+            if (aimedVehicle == null || !aimedVehicle.IsSpawned) return;
             bool sameTeam = NetworkSandboxSession.TeamForSlot(aimedVehicle.Slot) == NetworkSandboxSession.TeamForSlot(localVehicle.Slot);
-            GUI.Box(new Rect(x - 45f, y + 12f, 90f, 22f), sameTeam ? "Союзник" : "Противник");
+            GUI.Box(new Rect(width * 0.5f - 45f, height * 0.5f + 24f, 90f, 22f), sameTeam ? "Союзник" : "Противник");
         }
 
         private static string TeamName(NetworkVehicle vehicle) =>

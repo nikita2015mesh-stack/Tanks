@@ -17,7 +17,9 @@ namespace MadMachines.Networking
         public string Address { get; private set; }
         public ushort Port { get; private set; }
         public bool Connected => driver.IsCreated && connection.IsCreated && Time.realtimeSinceStartupAsDouble - lastReply < 4;
-        public bool WantsMatch { get; private set; }
+        private MatchIntent intent;
+        public bool WantsMatch => intent != MatchIntent.None;
+        public bool WantsBot => intent == MatchIntent.Bot;
         public MatchLobbyPhase Phase { get; private set; }
         public int Players { get; private set; }
         public int RequiredPlayers { get; private set; } = MatchLobbyServer.RequiredPlayers;
@@ -41,9 +43,9 @@ namespace MadMachines.Networking
             return true;
         }
 
-        public void SetWaiting(bool waiting)
+        public void SetWaiting(bool waiting, bool withBot = false)
         {
-            WantsMatch = waiting;
+            intent = waiting ? (withBot ? MatchIntent.Bot : MatchIntent.Players) : MatchIntent.None;
             nextUpdate = 0;
             if (!waiting) Players = 0;
             SendIntent();
@@ -72,10 +74,10 @@ namespace MadMachines.Networking
                     nextAttempt = now + 2;
                     Phase = MatchLobbyPhase.Waiting;
                     Players = 0;
-                    if (GameFlow.MatchTicket == Guid.Empty) WantsMatch = false;
+                    if (GameFlow.MatchTicket == Guid.Empty) intent = MatchIntent.None;
                     else if (GameFlow.Loading)
                     {
-                        WantsMatch = false;
+                        intent = MatchIntent.None;
                         GameFlow.CancelMatchPreparation("Связь с сервером потеряна до старта.");
                     }
                     break;
@@ -112,7 +114,7 @@ namespace MadMachines.Networking
                 connection.GetState(driver) != NetworkConnection.State.Connected ||
                 driver.BeginSend(pipeline, connection, out var writer) != 0) return;
             writer.WriteByte(MatchLobbyServer.Protocol);
-            writer.WriteByte(WantsMatch ? (byte)1 : (byte)0);
+            writer.WriteByte((byte)intent);
             if (GameFlow.MatchTicket != Guid.Empty)
                 foreach (byte value in GameFlow.MatchTicket.ToByteArray()) writer.WriteByte(value);
             driver.EndSend(writer);
@@ -130,7 +132,7 @@ namespace MadMachines.Networking
                 Application.runInBackground = previousRunInBackground;
             }
             connection = default;
-            WantsMatch = false;
+            intent = MatchIntent.None;
             Players = 0;
             Phase = MatchLobbyPhase.Waiting;
             lastReply = double.NegativeInfinity;

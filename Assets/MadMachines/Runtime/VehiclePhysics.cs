@@ -23,6 +23,8 @@ namespace MadMachines
         private const float AxleTolerance = 0.1f;
         private const float ParkingSpeed = 0.55f;
         private const float ServiceBrakeAcceleration = 8f;
+        private const float SlopeHoldSpeed = 1.1f;
+        private const float SlopeBrakeAcceleration = 11f;
         private const RigidbodyConstraints ParkingConstraints = RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ;
         private static readonly Vector3 DefaultCenterOfMass = new Vector3(0f, -0.35f, 0f);
 
@@ -54,6 +56,7 @@ namespace MadMachines
 
         internal bool ParkingBrake { get; set; }
         internal bool AutoHoldEnabled { get; set; }
+        internal bool SlopeHoldEnabled { get; set; }
         internal bool IsHeld => parkingLocked;
         public bool Authority { get; set; } = true;
         public VehicleDrive DriveMode { get => driveMode; set => driveMode = value; }
@@ -235,6 +238,7 @@ namespace MadMachines
             speedLimit = source.speedLimit;
             rollingResistance = source.rollingResistance;
             runningGear = source.runningGear;
+            SlopeHoldEnabled = source.SlopeHoldEnabled;
             steeringTurnTime = source.steeringTurnTime;
             steeringReturnTime = source.steeringReturnTime;
             wheelDefinitions = source.wheelDefinitions;
@@ -279,6 +283,7 @@ namespace MadMachines
             }
 
             GroundedWheels = 0;
+            Vector3 supportNormal = Vector3.zero;
             float targetSteering = Mathf.Clamp(command.Steering, -1f, 1f);
             float steeringTime = targetSteering == 0f ? steeringReturnTime : steeringTurnTime;
             float steeringFraction = step / Mathf.Max(0.01f, steeringTime);
@@ -298,6 +303,7 @@ namespace MadMachines
                 if (state.Grounded)
                 {
                     GroundedWheels++;
+                    supportNormal += hit.normal;
                     Vector3 origin = localToWorld.MultiplyPoint3x4(wheel.Mount);
                     Vector3 velocity = Body.GetPointVelocity(origin);
                     float share = supportTotal > 0f ? wheel.SupportWeight / supportTotal : 0f;
@@ -351,6 +357,18 @@ namespace MadMachines
                 }
                 state.Rotation = previous.Rotation + state.AngularSpeed * step;
                 wheelStates[i] = state;
+            }
+            if (SlopeHoldEnabled && !HasDriveInput(command.Throttle, command.Steering) &&
+                GroundedWheels >= Mathf.Min(3, WheelCount))
+            {
+                Vector3 normal = supportNormal.normalized;
+                Vector3 drift = Vector3.ProjectOnPlane(Body.linearVelocity, normal);
+                if (normal.y >= 0.72f && (command.Handbrake || drift.sqrMagnitude <= SlopeHoldSpeed * SlopeHoldSpeed))
+                {
+                    Vector3 downslope = Body.useGravity ? Vector3.ProjectOnPlane(Physics.gravity * gravityMultiplier, normal) : Vector3.zero;
+                    Vector3 braking = -downslope - drift / step;
+                    Body.AddForce(Vector3.ClampMagnitude(braking, SlopeBrakeAcceleration), ForceMode.Acceleration);
+                }
             }
             Body.AddForce(-Body.linearVelocity * Body.linearVelocity.magnitude * 0.7f);
         }

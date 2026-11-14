@@ -12,6 +12,8 @@ namespace MadMachines.Networking
     public sealed class NetworkSandboxSession : MonoBehaviour
     {
         private const double RetryDelay = 2;
+        private const float RecoveryMaxSpeed = 2.5f;
+        private const float BelowMapHeight = -15f;
         private const string LegacyServerFullReason = "На сервере уже два игрока.";
         private const string TeamServerFullReason = "На сервере нет свободных мест.";
         private const string SpawnBlockedReason = "Все доступные точки появления заняты машинами.";
@@ -252,12 +254,13 @@ namespace MadMachines.Networking
             return -1;
         }
 
-        private static bool StartBlocked(Transform start)
+        private static bool StartBlocked(Transform start, Rigidbody recovering = null)
         {
             foreach (Collider overlap in Physics.OverlapBox(start.position, new Vector3(3f, 2.5f, 4f), start.rotation,
                 NetworkVehicle.HitLayers, QueryTriggerInteraction.Ignore))
             {
-                if (overlap.attachedRigidbody != null && overlap.attachedRigidbody.GetComponent<NetworkVehicle>() != null)
+                if (overlap.attachedRigidbody != null && overlap.attachedRigidbody != recovering &&
+                    overlap.attachedRigidbody.GetComponent<NetworkVehicle>() != null)
                     return true;
             }
             return false;
@@ -401,18 +404,9 @@ namespace MadMachines.Networking
             if (!matchLobby.Running)
             {
                 matchReadyClients.Add(clientId);
-                if (matchReadyClients.Count < MatchLobbyServer.RequiredPlayers) return;
+                if (matchReadyClients.Count < matchLobby.RequiredClients) return;
                 foreach (ulong participant in new List<ulong>(matchReadyClients)) SpawnVehicle(participant);
-                if (players.Count == MatchLobbyServer.RequiredPlayers)
-                {
-                    deathmatch = new DeathmatchRound(Time.realtimeSinceStartupAsDouble);
-                    foreach (var player in players)
-                        deathmatch.Add(matchTickets[player.Key], player.Key, slots[player.Key], configurations[player.Key], player.Value);
-                    players.Clear();
-                    matchReadyClients.Clear();
-                    matchLobby.GameplayStarted(this);
-                    nextSessionUpdate = 0;
-                }
+                if (players.Count == matchLobby.RequiredClients) StartDeathmatch(clientId);
                 return;
             }
             DeathmatchRound.Participant returning = deathmatch?.Find(ticket);
@@ -425,6 +419,41 @@ namespace MadMachines.Networking
             returning.Standing.status = returning.Vehicle != null ? DeathmatchPlayerStatus.Playing : DeathmatchPlayerStatus.Respawning;
             if (returning.Vehicle != null) returning.Vehicle.GetComponent<NetworkVehicle>().SetController(clientId);
             nextSessionUpdate = 0;
+        }
+
+        private void StartDeathmatch(ulong clientId)
+        {
+            var round = new DeathmatchRound(Time.realtimeSinceStartupAsDouble);
+            foreach (var player in players)
+                round.Add(matchTickets[player.Key], player.Key, slots[player.Key], configurations[player.Key], player.Value);
+            if (matchLobby.WithBot)
+            {
+                Physics.SyncTransforms();
+                Transform start = FindTrainingStart(players[clientId].transform.position, out int botSlot);
+                NetworkObject bot = start != null
+                    ? SpawnVehicleAt(NetworkManager.ServerClientId, botSlot, VehicleDrive.Configured, start, isBot: true) : null;
+                if (bot == null)
+                {
+                    matchLobby.GameplayStartFailed();
+                    return;
+                }
+                round.Add(Guid.Empty, null, botSlot, VehicleDrive.Configured, bot);
+            }
+            deathmatch = round;
+            players.Clear();
+            matchReadyClients.Clear();
+            matchLobby.GameplayStarted(this);
+            nextSessionUpdate = 0;
+        }
+
+        internal NetworkVehicle FindTrainingOpponent(int slot)
+        {
+            foreach (DeathmatchRound.Participant participant in deathmatch.Participants)
+            {
+                if (participant.Standing.slot != slot && (participant.ClientId.HasValue || participant.IsBot) && participant.Vehicle != null)
+                    return participant.Vehicle.GetComponent<NetworkVehicle>();
+            }
+            return null;
         }
 
         private void SpawnVehicle(ulong clientId)
@@ -442,7 +471,7 @@ namespace MadMachines.Networking
             Manager.DisconnectClient(clientId, "Не удалось создать машину. См. журнал сервера.");
         }
 
-        private NetworkObject SpawnVehicleAt(ulong clientId, int slot, VehicleDrive drive, Transform start)
+        private NetworkObject SpawnVehicleAt(ulong clientId, int slot, VehicleDrive drive, Transform start, bool isBot = false)
         {
             GameObject instance = null;
             try
@@ -450,12 +479,15 @@ namespace MadMachines.Networking
                 instance = Instantiate(vehiclePrefab, start.position, start.rotation);
                 if (matchLobby != null) SceneManager.MoveGameObjectToScene(instance, gameObject.scene);
                 NetworkObject player = instance.GetComponent<NetworkObject>();
-                instance.GetComponent<NetworkVehicle>().InitializeServer(slot, clientId, matchLobby != null ? this : null);
+                NetworkVehicle vehicle = instance.GetComponent<NetworkVehicle>();
+                vehicle.InitializeServer(slot, clientId, matchLobby != null ? this : null);
+                if (isBot) vehicle.EnableBot();
                 // Approval accepts only configured/all/front/rear, never arbitrary forces.
                 if (drive != VehicleDrive.Configured) instance.GetComponent<VehiclePhysics>().DriveMode = drive;
                 player.Spawn(destroyWithScene: true);
                 if (!player.IsSpawned) throw new InvalidOperationException("Netcode did not spawn the vehicle.");
-                Log($"Client {clientId} joined with vehicle {player.NetworkObjectId}, slot {slot + 1}.");
+                Log(isBot ? $"Bot joined with vehicle {player.NetworkObjectId}, slot {slot + 1}." :
+                    $"Client {clientId} joined with vehicle {player.NetworkObjectId}, slot {slot + 1}.");
                 return player;
             }
             catch (Exception error)
@@ -485,6 +517,28 @@ namespace MadMachines.Networking
             nextSessionUpdate = 0;
         }
 
+        internal bool TryRecoverVehicle(NetworkVehicle vehicle)
+        {
+            DeathmatchRound.Participant participant = deathmatch.Find(vehicle.Slot);
+            if (participant == null || !participant.ClientId.HasValue || participant.Vehicle != vehicle.NetworkObject) return false;
+            if (vehicle.Body.linearVelocity.sqrMagnitude > RecoveryMaxSpeed * RecoveryMaxSpeed &&
+                vehicle.Body.position.y >= BelowMapHeight) return false;
+
+            Transform nearest = null;
+            float best = float.PositiveInfinity;
+            for (int i = 0; i < Capacity; i++)
+            {
+                Transform start = StartForSlot(i);
+                float distance = (start.position - vehicle.Body.position).sqrMagnitude;
+                if (distance >= best || StartBlocked(start, vehicle.Body)) continue;
+                nearest = start;
+                best = distance;
+            }
+            if (nearest == null) return false;
+            vehicle.GetComponent<VehiclePhysics>().Recover(nearest.position, nearest.rotation);
+            return true;
+        }
+
         private void AdvanceDeathmatch(double now)
         {
             if (deathmatch.Finished) return;
@@ -496,11 +550,13 @@ namespace MadMachines.Networking
             }
             foreach (DeathmatchRound.Participant participant in deathmatch.Participants)
             {
-                if (!participant.ClientId.HasValue || participant.Vehicle != null || now < participant.RespawnAt) continue;
-                Transform start = FindRespawnPoint();
+                if ((!participant.ClientId.HasValue && !participant.IsBot) || participant.Vehicle != null || now < participant.RespawnAt) continue;
+                NetworkVehicle opponent = matchLobby.WithBot ? FindTrainingOpponent(participant.Standing.slot) : null;
+                Transform start = opponent != null ? FindTrainingStart(opponent.transform.position, out _) : null;
+                if (start == null) start = FindRespawnPoint();
                 if (start == null) continue;
-                ulong clientId = participant.ClientId.Value;
-                NetworkObject vehicle = SpawnVehicleAt(clientId, participant.Standing.slot, participant.Drive, start);
+                ulong clientId = participant.ClientId ?? NetworkManager.ServerClientId;
+                NetworkObject vehicle = SpawnVehicleAt(clientId, participant.Standing.slot, participant.Drive, start, participant.IsBot);
                 if (vehicle == null)
                 {
                     participant.RespawnAt = now + DeathmatchRound.RespawnDelay;
@@ -514,6 +570,24 @@ namespace MadMachines.Networking
                 Physics.SyncTransforms();
                 nextSessionUpdate = 0;
             }
+        }
+
+        private Transform FindTrainingStart(Vector3 opponentPosition, out int selectedSlot)
+        {
+            Transform selected = null;
+            selectedSlot = -1;
+            float best = float.PositiveInfinity;
+            for (int slot = 0; slot < Capacity; slot++)
+            {
+                Transform start = StartForSlot(slot);
+                float distance = Vector3.Distance(start.position, opponentPosition);
+                float score = Mathf.Abs(distance - 26f);
+                if (distance < 14f || score >= best || slots.ContainsValue(slot) || StartBlocked(start)) continue;
+                selected = start;
+                selectedSlot = slot;
+                best = score;
+            }
+            return selected;
         }
 
         private Transform FindRespawnPoint()

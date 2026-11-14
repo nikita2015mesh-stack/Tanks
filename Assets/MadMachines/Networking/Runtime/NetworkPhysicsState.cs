@@ -17,6 +17,7 @@ namespace MadMachines.Networking
         public ulong ControllerClientId;
         public uint AppliedSequence;
         public bool HasAppliedInput;
+        public uint RecoveryCount;
         public Vector3 LinearVelocity;
         public Vector3 AngularVelocity;
         public Vector2 AimAngles;
@@ -33,6 +34,7 @@ namespace MadMachines.Networking
             serializer.SerializeValue(ref ControllerClientId);
             serializer.SerializeValue(ref AppliedSequence);
             serializer.SerializeValue(ref HasAppliedInput);
+            serializer.SerializeValue(ref RecoveryCount);
             serializer.SerializeValue(ref LinearVelocity);
             serializer.SerializeValue(ref AngularVelocity);
             serializer.SerializeValue(ref AimAngles);
@@ -60,7 +62,7 @@ namespace MadMachines.Networking
         public bool Equals(NetworkPhysicsPose other) => Position.Equals(other.Position) && Rotation.Equals(other.Rotation) &&
             ServerTime.Equals(other.ServerTime) && PhysicsStep == other.PhysicsStep &&
             ControllerClientId == other.ControllerClientId && AppliedSequence == other.AppliedSequence && HasAppliedInput == other.HasAppliedInput &&
-            LinearVelocity.Equals(other.LinearVelocity) && AngularVelocity.Equals(other.AngularVelocity) &&
+            RecoveryCount == other.RecoveryCount && LinearVelocity.Equals(other.LinearVelocity) && AngularVelocity.Equals(other.AngularVelocity) &&
             AimAngles.Equals(other.AimAngles) && Wheels.Equals(other.Wheels) && WheelSpeeds.Equals(other.WheelSpeeds);
     }
 
@@ -101,7 +103,7 @@ namespace MadMachines.Networking
             if (samples.Count == 1) return true;
             NetworkPhysicsPose to = samples[1];
             float blend = Mathf.Clamp01((float)((renderTime - from.ServerTime) / (to.ServerTime - from.ServerTime)));
-            result = Interpolate(from, to, blend);
+            result = from.RecoveryCount == to.RecoveryCount ? Interpolate(from, to, blend) : from;
             result.ServerTime = Math.Max(from.ServerTime, Math.Min(renderTime, to.ServerTime));
             return true;
         }
@@ -160,6 +162,7 @@ namespace MadMachines.Networking
         private NetworkVehiclePrediction prediction;
         private bool predictionFailed;
         internal CollisionDetectionMode ServerCollisionMode => serverCollisionMode;
+        internal uint PresentedRecoveryCount { get; private set; }
 
         public string SnapshotDiagnostics => IsServer
             ? $"физический шаг={pose.Value.PhysicsStep}, время снимка={pose.Value.ServerTime:F3} с"
@@ -375,6 +378,7 @@ namespace MadMachines.Networking
 
         private void ApplyPose(NetworkPhysicsPose sample)
         {
+            PresentedRecoveryCount = sample.RecoveryCount;
             transform.SetPositionAndRotation(sample.Position, sample.Rotation);
             transform.localScale = initialScale;
             if (vehicle != null) vehicle.ApplyPresentation(sample);

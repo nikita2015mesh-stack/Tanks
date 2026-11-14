@@ -5,10 +5,11 @@ namespace MadMachines
     [RequireComponent(typeof(Camera))]
     public sealed class VehicleCamera : MonoBehaviour
     {
-        private const float AimTransitionSeconds = 0.28f;
+        internal const float AimTransitionSeconds = 0.28f;
+        internal const float DefaultAimFieldOfView = 35f;
 
         [SerializeField] private Transform target;
-        [SerializeField, Range(15f, 60f)] private float aimFieldOfView = 35f;
+        [SerializeField, Range(15f, 60f)] private float aimFieldOfView = DefaultAimFieldOfView;
         private Camera viewCamera;
         private WeaponSystem weapons;
         private Collider[] hullColliders;
@@ -80,7 +81,7 @@ namespace MadMachines
                 viewCamera.fieldOfView = Mathf.Lerp(chaseFieldOfView, Mathf.Min(aimFieldOfView, chaseFieldOfView), blend);
                 if (blend > 0f)
                 {
-                    Vector3 aimPosition = weapons.MuzzlePosition + weapons.AimDirection * 0.2f;
+                    Vector3 aimPosition = GetAimPosition(weapons.MountPosition, AimDirection, hullColliders);
                     position = ClearHull(Vector3.Lerp(chasePosition, aimPosition, blend));
                 }
             }
@@ -95,7 +96,22 @@ namespace MadMachines
             if (weapons != null) weapons.GuideRocket(position, AimDirection);
         }
 
-        private Vector3 ClearHull(Vector3 position)
+        internal static Vector3 GetAimPosition(Vector3 mount, Vector3 lookDirection, Collider[] hullColliders)
+        {
+            Vector3 offset = -lookDirection * 3.8f + Vector3.up * 1.35f;
+            Vector3 direction = offset.normalized;
+            float distance = offset.magnitude;
+            foreach (RaycastHit hit in Physics.SphereCastAll(mount, 0.25f, direction, distance, 1, QueryTriggerInteraction.Ignore))
+            {
+                if (System.Array.IndexOf(hullColliders, hit.collider) >= 0) continue;
+                distance = Mathf.Min(distance, Mathf.Max(0f, hit.distance - 0.15f));
+            }
+            return mount + direction * distance;
+        }
+
+        private Vector3 ClearHull(Vector3 position) => ClearHull(position, hullColliders);
+
+        internal static Vector3 ClearHull(Vector3 position, Collider[] hullColliders)
         {
             // Lift the transition over the chassis, keeping the near plane clear even when it rolls.
             const float clearance = 0.5f;

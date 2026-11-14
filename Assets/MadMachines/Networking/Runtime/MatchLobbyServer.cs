@@ -10,10 +10,11 @@ using UnityEngine.SceneManagement;
 namespace MadMachines.Networking
 {
     internal enum MatchLobbyPhase : byte { Waiting, Loading, Running, Closing, Failed }
+    internal enum MatchIntent : byte { None, Players, Bot }
 
     internal sealed class MatchLobbyServer : MonoBehaviour
     {
-        public const byte Protocol = 1;
+        public const byte Protocol = 2;
         public const int RequiredPlayers = 2;
         private const int MaxConnections = 32;
         public static MatchLobbyServer Instance { get; private set; }
@@ -22,7 +23,7 @@ namespace MadMachines.Networking
         {
             public NetworkConnection Connection;
             public bool Compatible;
-            public bool Waiting;
+            public MatchIntent Intent;
             public bool Failed;
             public Guid Ticket;
         }
@@ -90,13 +91,20 @@ namespace MadMachines.Networking
 
         public bool CanAdmit(Guid ticket) => (phase == MatchLobbyPhase.Loading || phase == MatchLobbyPhase.Running) && tickets.Contains(ticket);
         public bool Running => phase == MatchLobbyPhase.Running;
+        public bool WithBot { get; private set; }
+        public int RequiredClients => WithBot ? 1 : RequiredPlayers;
 
         public void GameplayStarted(NetworkSandboxSession activeSession)
         {
             if (phase != MatchLobbyPhase.Loading) return;
             session = activeSession;
             phase = MatchLobbyPhase.Running;
-            Log($"Сессия началась. Игроков {RequiredPlayers}/{RequiredPlayers}.");
+            Log(WithBot ? "Начался бой с ботом." : $"Сессия началась. Игроков {RequiredPlayers}/{RequiredPlayers}.");
+        }
+
+        internal void GameplayStartFailed()
+        {
+            if (phase == MatchLobbyPhase.Loading) EndRound("Не удалось создать участников матча.");
         }
 
         public void GameplayConnectionLost(Guid ticket)
@@ -105,7 +113,7 @@ namespace MadMachines.Networking
             Peer peer = peers.Find(candidate => candidate.Ticket == ticket);
             if (peer == null) return;
             peer.Ticket = Guid.Empty;
-            peer.Waiting = false;
+            peer.Intent = MatchIntent.None;
             peer.Failed = true;
             EndRound("Участник потерял игровое соединение при загрузке.", requeue: true);
         }
@@ -153,14 +161,15 @@ namespace MadMachines.Networking
                         peer.Compatible = true;
                         Log("Клиент подключился к очереди.");
                     }
-                    bool waiting = packet.ReadByte() == 1;
+                    MatchIntent intent = (MatchIntent)packet.ReadByte();
+                    if (intent != MatchIntent.None && intent != MatchIntent.Players && intent != MatchIntent.Bot) continue;
                     if (packet.Length == 18)
                     {
                         var ticketBytes = new byte[16];
                         packet.ReadBytes(ticketBytes.AsSpan());
                         var ticket = new Guid(ticketBytes);
                         if (!tickets.Contains(ticket)) continue;
-                        if (!waiting)
+                        if (intent == MatchIntent.None)
                         {
                             PlayerLeft(ticket);
                             continue;
@@ -171,17 +180,27 @@ namespace MadMachines.Networking
                     }
                     if (peer.Failed)
                     {
-                        if (!waiting) peer.Failed = false;
+                        if (intent == MatchIntent.None) peer.Failed = false;
                         continue;
                     }
-                    if (peer.Waiting != waiting) ChangeIntent(peer, waiting);
+                    if (peer.Ticket == Guid.Empty) peer.Intent = intent;
+                    else if (intent == MatchIntent.None) PlayerLeft(peer.Ticket);
                 }
             }
 
             int waitingCount = 0;
+            Peer botRequest = null;
             foreach (Peer peer in peers)
-                if (peer.Waiting && peer.Ticket == Guid.Empty) waitingCount++;
-            if (phase == MatchLobbyPhase.Waiting && waitingCount >= RequiredPlayers) StartCoroutine(LoadMap());
+            {
+                if (peer.Ticket != Guid.Empty || peer.Failed) continue;
+                if (peer.Intent == MatchIntent.Players) waitingCount++;
+                else if (peer.Intent == MatchIntent.Bot && botRequest == null) botRequest = peer;
+            }
+            if (phase == MatchLobbyPhase.Waiting)
+            {
+                if (waitingCount >= RequiredPlayers) StartCoroutine(LoadMap(null));
+                else if (botRequest != null) StartCoroutine(LoadMap(botRequest));
+            }
             if (phase == MatchLobbyPhase.Loading && now >= preparationDeadline) EndRound("Истекло время подготовки карты.");
             if (phase == MatchLobbyPhase.Running && (tickets.Count == 0 || (session != null && session.ResultsExpired(now))))
                 EndRound("Сессия завершена.");
@@ -195,20 +214,14 @@ namespace MadMachines.Networking
                 writer.WriteByte(Protocol);
                 MatchLobbyPhase peerPhase = peer.Failed ? MatchLobbyPhase.Failed : reserved ? phase : MatchLobbyPhase.Waiting;
                 writer.WriteByte((byte)peerPhase);
-                writer.WriteByte((byte)(reserved ? RequiredPlayers : Mathf.Min(waitingCount, RequiredPlayers)));
-                writer.WriteByte(RequiredPlayers);
+                int required = reserved ? RequiredClients : peer.Intent == MatchIntent.Bot ? 1 : RequiredPlayers;
+                int ready = reserved ? required : peer.Intent == MatchIntent.Bot ? 0 : Mathf.Min(waitingCount, required);
+                writer.WriteByte((byte)ready);
+                writer.WriteByte((byte)required);
                 if (reserved && session != null && session.Manager != null && session.Manager.IsListening)
                     foreach (byte value in peer.Ticket.ToByteArray()) writer.WriteByte(value);
                 driver.EndSend(writer);
             }
-        }
-
-        private void ChangeIntent(Peer peer, bool waiting)
-        {
-            peer.Waiting = waiting;
-            Log(waiting ? "Клиент подал заявку." : "Клиент снял заявку.");
-            if (waiting || peer.Ticket == Guid.Empty) return;
-            PlayerLeft(peer.Ticket);
         }
 
         public void PlayerLeft(Guid ticket)
@@ -218,24 +231,25 @@ namespace MadMachines.Networking
             if (peer != null)
             {
                 peer.Ticket = Guid.Empty;
-                peer.Waiting = false;
+                peer.Intent = MatchIntent.None;
             }
             if (phase == MatchLobbyPhase.Loading) EndRound("Участник отменил запуск.", requeue: true);
             else if (phase == MatchLobbyPhase.Running && session != null) session.PlayerLeft(ticket);
         }
 
-        private IEnumerator LoadMap()
+        private IEnumerator LoadMap(Peer botRequest)
         {
+            WithBot = botRequest != null;
             phase = MatchLobbyPhase.Loading;
             preparationDeadline = Time.realtimeSinceStartupAsDouble + 30;
             foreach (Peer peer in peers)
             {
-                if (!peer.Waiting) continue;
+                if (WithBot ? peer != botRequest : peer.Intent != MatchIntent.Players || peer.Failed) continue;
                 peer.Ticket = Guid.NewGuid();
                 tickets.Add(peer.Ticket);
-                if (tickets.Count == RequiredPlayers) break;
+                if (tickets.Count == RequiredClients) break;
             }
-            Log($"Состав собран {RequiredPlayers}/{RequiredPlayers}. Загружаем «Три дороги».");
+            Log(WithBot ? "Готовим «Три дороги» для боя с ботом." : $"Состав собран {RequiredPlayers}/{RequiredPlayers}. Загружаем «Три дороги».");
             loadingMap = true;
             yield return SceneManager.LoadSceneAsync(GameFlow.ThreeRoadsScene, LoadSceneMode.Additive);
             loadingMap = false;
@@ -257,7 +271,7 @@ namespace MadMachines.Networking
             {
                 if (peer.Ticket == Guid.Empty) continue;
                 peer.Ticket = Guid.Empty;
-                peer.Waiting = requeue;
+                if (!requeue) peer.Intent = MatchIntent.None;
                 peer.Failed = preparationFailed;
             }
             StartCoroutine(UnloadMap());
@@ -276,6 +290,7 @@ namespace MadMachines.Networking
             Scene map = SceneManager.GetSceneByName(GameFlow.ThreeRoadsScene);
             if (map.isLoaded) yield return SceneManager.UnloadSceneAsync(map);
             session = null;
+            WithBot = false;
             phase = MatchLobbyPhase.Waiting;
             Log("Очередь готова принять следующий состав.");
         }

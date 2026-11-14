@@ -362,7 +362,7 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::MadMachines.VehicleCamera
   target: {fileID: 0}
-  aimFieldOfView: 18
+  aimFieldOfView: 35
 --- !u!81 &613243934
 AudioListener:
   m_ObjectHideFlags: 0

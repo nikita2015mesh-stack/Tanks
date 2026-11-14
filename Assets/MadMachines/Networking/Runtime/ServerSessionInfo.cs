@@ -36,7 +36,8 @@ namespace MadMachines.Networking
         public int deaths;
         public int health;
         public DeathmatchPlayerStatus status;
+        public bool isBot;
 
-        public string Name => $"Игрок {slot + 1}";
+        public string Name => isBot ? "Бот" : $"Игрок {slot + 1}";
     }
 }

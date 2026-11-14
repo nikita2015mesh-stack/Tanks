@@ -219,7 +219,12 @@ namespace MadMachines
                     Vector3 ray = closest - position;
                     if (ray.magnitude > 0.15f && Physics.Raycast(position + ray.normalized * 0.08f, ray.normalized, out RaycastHit obstruction, ray.magnitude - 0.1f, 1, QueryTriggerInteraction.Ignore) && obstruction.collider != collider) continue;
                     if (affected != null && affected != body && pushed.Add(affected))
-                        affected.AddExplosionForce(definition.BlastImpulse, position, definition.BlastRadius, 1.5f, ForceMode.Impulse);
+                    {
+                        bool chassis = affected.TryGetComponent<VehiclePhysics>(out _);
+                        float impulse = chassis ? definition.BlastImpulse * 0.28f : definition.BlastImpulse;
+                        float lift = chassis ? 0.2f : 1.5f;
+                        affected.AddExplosionForce(impulse, position, definition.BlastRadius, lift, ForceMode.Impulse);
+                    }
                     if (target != null && damaged.Add(target)) target.Hit(definition.Damage, owner, shotId);
                 }
             }
