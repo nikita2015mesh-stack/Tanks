@@ -330,8 +330,6 @@ MonoBehaviour:
   vehicle: {fileID: 11400000, guid: c5ca49650e644f2d89166f87479bd368, type: 2}
   startPoint: {fileID: 10203}
   view: {fileID: 613243933}
-  guidedRocket: {fileID: 11400000, guid: 4407a002db0748b1a49abc9f9fe3af43, type: 2}
-  unguidedRocket: {fileID: 11400000, guid: cc5c069e97d14189bdaff620ea7ff916, type: 2}
 --- !u!1 &613243932
 GameObject:
   m_ObjectHideFlags: 0

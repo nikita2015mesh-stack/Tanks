@@ -30,6 +30,8 @@ namespace MadMachines
         [SerializeField] private Transform barrel;
         [SerializeField] private Transform muzzle;
         [SerializeField] private WeaponMount[] mounts;
+        [SerializeField] private WeaponDefinition localGuidedRocket;
+        [SerializeField] private WeaponDefinition localUnguidedRocket;
         [SerializeField] private Transform rocketRest;
         [SerializeField] private Transform leftRocketRest;
         [SerializeField] private Transform rightRocketRest;
@@ -155,7 +157,13 @@ namespace MadMachines
             return DefaultMount;
         }
 
-        internal void EnableGuidedRocket(WeaponDefinition definition)
+        internal void EnableLocalRockets(WeaponDefinition guidedOverride, WeaponDefinition unguidedOverride)
+        {
+            EnableGuidedRocket(guidedOverride != null ? guidedOverride : localGuidedRocket);
+            EnableUnguidedRocket(unguidedOverride != null ? unguidedOverride : localUnguidedRocket);
+        }
+
+        private void EnableGuidedRocket(WeaponDefinition definition)
         {
             if (HasGuidedRocket || definition == null || !definition.GetProjectile().Guided || rocketRest == null) return;
             WeaponMount mount = FindMount(definition);
@@ -164,7 +172,7 @@ namespace MadMachines
             ProjectileVisual.Attach(rocketRest.gameObject, ProjectileAppearance.Rocket);
         }
 
-        internal void EnableUnguidedRocket(WeaponDefinition definition)
+        private void EnableUnguidedRocket(WeaponDefinition definition)
         {
             if (HasUnguidedRocket || definition == null || leftRocketRest == null || rightRocketRest == null) return;
             ProjectileDefinition projectile = definition.GetProjectile();

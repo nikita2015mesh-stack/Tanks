@@ -8,6 +8,7 @@ namespace MadMachines
         [SerializeField] private VehicleDefinition vehicle;
         [SerializeField] private Transform startPoint;
         [SerializeField] private VehicleCamera view;
+        // Older scenes may still override the vehicle's local rocket loadout.
         [SerializeField] private WeaponDefinition guidedRocket;
         [SerializeField] private WeaponDefinition unguidedRocket;
 
@@ -40,8 +41,7 @@ namespace MadMachines
             if (!Application.isBatchMode) car.gameObject.AddComponent<VehicleFeedback>().Bind(car);
             if (GameFlow.LocalLaunchPending) car.DriveMode = GameFlow.SelectedDrive;
             WeaponSystem weapons = car.GetComponent<WeaponSystem>();
-            weapons.EnableGuidedRocket(guidedRocket);
-            weapons.EnableUnguidedRocket(unguidedRocket);
+            weapons.EnableLocalRockets(guidedRocket, unguidedRocket);
             rules.BindParticipant(car, startPoint);
             if (TryGetComponent(out ShootingRange range)) range.Bind(car);
             view.Configure(car.transform);

@@ -3817,6 +3817,8 @@ MonoBehaviour:
     yaw: {fileID: 5212048100001}
     pitch: {fileID: 5212048100005}
     muzzle: {fileID: 5212048100007}
+  localGuidedRocket: {fileID: 11400000, guid: 4407a002db0748b1a49abc9f9fe3af43, type: 2}
+  localUnguidedRocket: {fileID: 11400000, guid: cc5c069e97d14189bdaff620ea7ff916, type: 2}
   rocketRest: {fileID: 5212048000030}
   leftRocketRest: {fileID: 5212048100009}
   rightRocketRest: {fileID: 5212048100011}
