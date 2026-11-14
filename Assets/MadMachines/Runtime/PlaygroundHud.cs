@@ -126,18 +126,37 @@ namespace MadMachines
             GUI.Label(new Rect(35, 61, 340, 30), progress, text);
             GUI.Label(new Rect(35, 94, 340, 50), $"{vehicle.Speed:0} км/ч   •   {weapons.Current.Label}", text);
             GUI.Box(new Rect(20, height - 78, 355, 58), "");
-            GUI.Label(new Rect(35, height - 71, 335, 25), weapons.Reload > 0f ? "ПЕРЕЗАРЯДКА" : "МОЖНО СТРЕЛЯТЬ", small);
+            string weaponStatus = weapons.GuidedRocketSelected && weapons.RocketInFlight ? "РАКЕТА В ПОЛЁТЕ" :
+                weapons.Reload > 0f ? "ПЕРЕЗАРЯДКА" : "МОЖНО СТРЕЛЯТЬ";
+            GUI.Label(new Rect(35, height - 71, 335, 25), weaponStatus, small);
             GUI.Label(new Rect(185, height - 71, 180, 25), input.AimMode ? "C — ПРИЦЕЛЬНЫЙ ВИД" : "C — ТРЕТЬЕ ЛИЦО", small);
             GUI.color = new Color(0.3f, 1f, 0.65f);
             GUI.DrawTexture(new Rect(35, height - 40, 320 * (1f - weapons.Reload), 6), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            GUI.Label(new Rect(width - 375, height - 60, 355, 50), "1 — пулемёт  2 — пушка  3 — граната\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
+            string weaponKeys = weapons.HasGuidedRocket
+                ? "1 — пулемёт  2 — пушка  3 — граната  4 — ПТУР"
+                : "1 — пулемёт  2 — пушка  3 — граната";
+            GUI.Label(new Rect(width - 375, height - 60, 355, 50),
+                weaponKeys + "\nR — восстановление  •  Пробел — занос  •  Esc — пауза", small);
             GUI.color = Time.time - rules.LastHitTime < 0.2f ? Color.red : Color.white;
             GUI.DrawTexture(new Rect(width / 2 - 13, height / 2, 9, 2), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(width / 2 + 5, height / 2, 9, 2), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(width / 2, height / 2 - 13, 2, 9), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(width / 2, height / 2 + 5, 2, 9), Texture2D.whiteTexture);
             GUI.color = Color.white;
+            if (weapons.IsGuidingRocket)
+            {
+                GUI.color = new Color(1f, 0.75f, 0.2f);
+                GUI.Label(new Rect(width / 2 - 38, height / 2 + 17, 100, 25), "Наведение", small);
+                GUI.color = Color.white;
+            }
+            if (!weapons.GuidedRocketSelected) DrawBallisticImpactMarker(scale);
+            if (rules.Phase == SessionPhase.Countdown)
+                GUI.Label(new Rect(width / 2 - 125, height / 2 - 140, 250, 60), "ДО СТАРТА " + Mathf.CeilToInt(rules.Countdown), title);
+        }
+
+        private void DrawBallisticImpactMarker(float scale)
+        {
             // Ballistic impact marker: first intersection of sampled trajectory, not a hitscan shot.
             Vector3 position = weapons.MuzzlePosition;
             Vector3 velocity = weapons.AimDirection * weapons.Current.Speed + vehicle.Body.linearVelocity;
@@ -158,8 +177,6 @@ namespace MadMachines
                 position = next;
                 if (weapons.Current.Gravity) velocity += Physics.gravity * 0.08f;
             }
-            if (rules.Phase == SessionPhase.Countdown)
-                GUI.Label(new Rect(width / 2 - 125, height / 2 - 140, 250, 60), "ДО СТАРТА " + Mathf.CeilToInt(rules.Countdown), title);
         }
 
         private string FormatResult(float result)

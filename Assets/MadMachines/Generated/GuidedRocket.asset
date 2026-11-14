@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2dd5e75dbc125ef49b5db9e7769cedc5, type: 3}
+  m_Name: GuidedRocket
+  m_EditorClassIdentifier: Assembly-CSharp::MadMachines.WeaponDefinition
+  Label: "\u041F\u0422\u0423\u0420"
+  Speed: 44
+  Mass: 2
+  Interval: 3
+  Recoil: 90
+  Spread: 0
+  Lifetime: 7
+  Radius: 4
+  Impulse: 5000
+  Size: 0.15
+  Damage: 100
+  Gravity: 0
+  TimedBounce: 0
+  Color: {r: 1, g: 0.55, b: 0.19, a: 1}
+  steeringDegreesPerSecond: 65

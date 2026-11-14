@@ -19,5 +19,9 @@ namespace MadMachines
         public bool Gravity = true;
         public bool TimedBounce;
         public Color Color = Color.yellow;
+        [SerializeField, Min(0f)] private float steeringDegreesPerSecond;
+
+        public float SteeringDegreesPerSecond => steeringDegreesPerSecond;
+        public bool Guided => steeringDegreesPerSecond > 0f;
     }
 }

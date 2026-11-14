@@ -8,6 +8,7 @@ namespace MadMachines
         [SerializeField] private VehicleDefinition vehicle;
         [SerializeField] private Transform startPoint;
         [SerializeField] private VehicleCamera view;
+        [SerializeField] private WeaponDefinition guidedRocket;
 
         public void Configure(VehicleDefinition definition, Transform start, VehicleCamera camera)
         {
@@ -37,6 +38,7 @@ namespace MadMachines
             car.name = prefab.name;
             if (GameFlow.LocalLaunchPending) car.DriveMode = GameFlow.SelectedDrive;
             WeaponSystem weapons = car.GetComponent<WeaponSystem>();
+            weapons.EnableGuidedRocket(guidedRocket);
             rules.BindParticipant(car, startPoint);
             view.Configure(car.transform);
             view.ResetView();
