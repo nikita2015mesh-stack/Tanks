@@ -41,7 +41,11 @@ namespace MadMachines
             if (!Application.isBatchMode) car.gameObject.AddComponent<VehicleFeedback>().Bind(car);
             if (GameFlow.LocalLaunchPending) car.DriveMode = GameFlow.SelectedDrive;
             WeaponSystem weapons = car.GetComponent<WeaponSystem>();
-            weapons.EnableLocalRockets(guidedRocket, unguidedRocket);
+            GarageLoadout loadout = GameFlow.LocalLaunchPending ? GameFlow.SelectedLoadout : default;
+            car.ApplyGarageMobility(loadout);
+            weapons.ApplyGarageTurret(selected.FindTurret(loadout.TurretId));
+            if (!weapons.InstallGarageWeapon(loadout.Weapon, GameFlow.GarageArsenal, GameFlow.GarageHeavyCannon))
+                weapons.EnableLocalRockets(guidedRocket, unguidedRocket);
             rules.BindParticipant(car, startPoint);
             if (TryGetComponent(out ShootingRange range)) range.Bind(car);
             view.Configure(car.transform);

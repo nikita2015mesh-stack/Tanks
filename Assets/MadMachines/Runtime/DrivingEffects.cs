@@ -17,8 +17,6 @@ namespace MadMachines
         private Mesh trackMesh;
         private Material trackMaterial;
         private Material particleMaterial;
-        private Material tracerMaterial;
-        private Material wakeMaterial;
         private Material flashMaterial;
         private Material fireMaterial;
         private ParticleSystem particles;
@@ -150,10 +148,11 @@ namespace MadMachines
             nextFlash = (nextFlash + 1) % flashes.Length;
             if (flash.Line == null)
             {
+                if (flashMaterial == null) flashMaterial = CreateMaterial("Muzzle flame", 4f, 3003, additive: true);
+                if (flashMaterial == null) return;
                 GameObject effect = new GameObject("Muzzle flash") { layer = gameObject.layer };
                 effect.transform.SetParent(transform, false);
                 LineRenderer line = effect.AddComponent<LineRenderer>();
-                if (flashMaterial == null) flashMaterial = CreateMaterial("Muzzle flame", 4f, 3003, additive: true);
                 line.sharedMaterial = flashMaterial;
                 line.shadowCastingMode = ShadowCastingMode.Off;
                 line.receiveShadows = false;
@@ -286,24 +285,6 @@ namespace MadMachines
             Play(Clips.Crash, point, Mathf.Lerp(0.32f, 0.82f, strength), 85f);
         }
 
-        internal Material TracerMaterial
-        {
-            get
-            {
-                if (tracerMaterial == null) tracerMaterial = CreateMaterial("Projectile tracer", 2f, 3003, additive: true);
-                return tracerMaterial;
-            }
-        }
-
-        internal Material WakeMaterial
-        {
-            get
-            {
-                if (wakeMaterial == null) wakeMaterial = CreateMaterial("Cannon wake", 3f, 3000);
-                return wakeMaterial;
-            }
-        }
-
         private static Color WithAlpha(Color color, float opacity)
         {
             color.a *= opacity;
@@ -319,6 +300,7 @@ namespace MadMachines
             if (particles == null)
             {
                 particleMaterial = CreateMaterial("Dust and smoke", 1f, 3001);
+                if (particleMaterial == null) return;
                 particles = CreateParticles("Dust and smoke", particleMaterial, 750, false);
             }
             EmitParticle(particles, point, velocity, size, lifetime, color);
@@ -329,6 +311,7 @@ namespace MadMachines
             if (fireParticles == null)
             {
                 fireMaterial = CreateMaterial("Flame and sparks", 5f, 3002, additive: true);
+                if (fireMaterial == null) return;
                 fireParticles = CreateParticles("Flame and sparks", fireMaterial, 320, true);
             }
             EmitParticle(fireParticles, point, velocity, size, lifetime, color);
@@ -428,13 +411,14 @@ namespace MadMachines
             tracksChanged = false;
             if (trackMesh == null)
             {
+                trackMaterial = CreateMaterial("Tire marks", 0f, 2990);
+                if (trackMaterial == null) return;
                 trackMesh = new Mesh { name = "Tire tracks" };
                 trackMesh.MarkDynamic();
                 gameObject.AddComponent<MeshFilter>().sharedMesh = trackMesh;
                 MeshRenderer renderer = gameObject.AddComponent<MeshRenderer>();
                 renderer.shadowCastingMode = ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
-                trackMaterial = CreateMaterial("Tire marks", 0f, 2990);
                 trackMaterial.SetFloat("_TrackLifetime", TrackLifetime);
                 renderer.sharedMaterial = trackMaterial;
             }
@@ -477,7 +461,9 @@ namespace MadMachines
 
         private static Material CreateMaterial(string name, float mode, int queue, bool additive = false)
         {
-            Material material = new Material(Resources.Load<Shader>("DrivingFeedback")) { name = name, renderQueue = queue };
+            Shader shader = Resources.Load<Shader>("DrivingFeedback");
+            if (shader == null || !shader.isSupported) return null;
+            Material material = new Material(shader) { name = name, renderQueue = queue };
             material.SetFloat("_Mode", mode);
             material.SetFloat("_DstBlend", (float)(additive ? BlendMode.One : BlendMode.OneMinusSrcAlpha));
             return material;
@@ -524,8 +510,6 @@ namespace MadMachines
             Destroy(trackMesh);
             Destroy(trackMaterial);
             Destroy(particleMaterial);
-            Destroy(tracerMaterial);
-            Destroy(wakeMaterial);
             Destroy(flashMaterial);
             Destroy(fireMaterial);
         }

@@ -19,7 +19,6 @@ namespace MadMachines
         private float recoveryExpires;
 
         internal int ZeroDistance { get; private set; } = BallisticSight.Distances[0];
-        internal bool ShowPrediction { get; private set; }
         internal string LastImpact => Time.time < impactExpires ? lastImpact : null;
         internal bool RecoveredAtBoundary => Time.time < recoveryExpires;
 
@@ -59,8 +58,6 @@ namespace MadMachines
                 return;
             }
         }
-
-        internal void TogglePrediction() => ShowPrediction = !ShowPrediction;
 
         private void FixedUpdate()
         {

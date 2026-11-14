@@ -163,6 +163,9 @@ MonoBehaviour:
   vehicle: {fileID: 11400000, guid: c5ca49650e644f2d89166f87479bd368, type: 2}
   vehicles:
   - {fileID: 11400000, guid: 4d50933a061c5bc8b52e4371c052c5b0, type: 2}
+  - {fileID: 11400000, guid: 91f8377cf8795b889fcbfa3e8334febd, type: 2}
+  arsenalVehicle: {fileID: 11400000, guid: c5ca49650e644f2d89166f87479bd368, type: 2}
+  heavyCannon: {fileID: 11400000, guid: 5a6a1bb78a674a6782d7a745ef5a9185, type: 2}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

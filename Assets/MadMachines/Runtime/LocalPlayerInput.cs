@@ -123,12 +123,13 @@ namespace MadMachines
             weapons.Aim(aim);
             if (!canPlay) return;
             float throttle = (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f);
+            float steering = (keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f);
             if (keyboard.pKey.wasPressedThisFrame) vehicle.ParkingBrake = !vehicle.ParkingBrake;
-            if (throttle != 0f) vehicle.ParkingBrake = false;
+            if (vehicle.HasDriveInput(throttle, steering)) vehicle.ParkingBrake = false;
             vehicle.Submit(new VehicleCommand
             {
                 Throttle = throttle,
-                Steering = (keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f),
+                Steering = steering,
                 Handbrake = keyboard.spaceKey.isPressed,
                 BrakeBeforeReversing = true
             });
@@ -143,7 +144,6 @@ namespace MadMachines
 
         private void UpdateRangeControls(Keyboard keyboard, Mouse mouse)
         {
-            if (keyboard.hKey.wasPressedThisFrame) Range.TogglePrediction();
             if (rules.Mode == ChallengeMode.Free && keyboard.fKey.wasPressedThisFrame)
             {
                 Range.ResetTargets();

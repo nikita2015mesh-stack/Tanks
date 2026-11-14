@@ -33,6 +33,7 @@ namespace MadMachines
         [SerializeField, Min(0f)] private float tireFriction;
         [SerializeField, Min(1f)] private float gravityMultiplier = 1f;
         [SerializeField] private VehicleDrive driveMode;
+        [SerializeField] private bool trackedDrive;
         [SerializeField, Min(0.01f)] private float steeringTurnTime = 0.32f;
         [SerializeField, Min(0.01f)] private float steeringReturnTime = 0.20f;
         // Retained as defaults for scenes created before configurable wheels.
@@ -46,17 +47,32 @@ namespace MadMachines
         private VehicleCommand command;
         private RigidbodyConstraints originalConstraints;
         private bool parkingLocked;
+        private float engineMultiplier = 1f;
+        private float speedLimit = 32f;
+        private float rollingResistance = 45f;
+        private GarageRunningGear runningGear;
 
         internal bool ParkingBrake { get; set; }
         internal bool AutoHoldEnabled { get; set; }
         internal bool IsHeld => parkingLocked;
         public bool Authority { get; set; } = true;
         public VehicleDrive DriveMode { get => driveMode; set => driveMode = value; }
+        internal bool TrackedDrive => trackedDrive;
+        internal bool HasDriveInput(float throttle, float steering) =>
+            throttle != 0f || (trackedDrive && steering != 0f);
         public Rigidbody Body => body != null ? body : body = GetComponent<Rigidbody>();
         public float Speed => Body.linearVelocity.magnitude * 3.6f;
         public int GroundedWheels { get; private set; }
         public int WheelCount => wheelDefinitions != null && wheelDefinitions.Length > 0 ? wheelDefinitions.Length : 4;
         internal float Throttle => command.Throttle;
+
+        internal void ApplyGarageMobility(GarageLoadout loadout)
+        {
+            engineMultiplier = loadout.Engine == GarageEngine.Sport ? 1.32f : loadout.Engine == GarageEngine.Economy ? 0.72f : 1f;
+            speedLimit = loadout.Engine == GarageEngine.Sport ? 39f : loadout.Engine == GarageEngine.Economy ? 24f : 32f;
+            runningGear = loadout.RunningGear;
+            rollingResistance = runningGear == GarageRunningGear.Road ? 34f : runningGear == GarageRunningGear.OffRoad ? 55f : 45f;
+        }
 
         private void Awake()
         {
@@ -169,7 +185,7 @@ namespace MadMachines
         private void ApplyParkingBrake()
         {
             Rigidbody rb = Body;
-            if ((!ParkingBrake && !AutoHoldEnabled) || command.Throttle != 0f ||
+            if ((!ParkingBrake && !AutoHoldEnabled) || HasDriveInput(command.Throttle, command.Steering) ||
                 rb.isKinematic || GroundedWheels < Mathf.Min(3, WheelCount))
             {
                 SetParkingLock(false);
@@ -214,6 +230,11 @@ namespace MadMachines
             grip = source.grip;
             tireFriction = source.tireFriction;
             gravityMultiplier = source.gravityMultiplier;
+            trackedDrive = source.trackedDrive;
+            engineMultiplier = source.engineMultiplier;
+            speedLimit = source.speedLimit;
+            rollingResistance = source.rollingResistance;
+            runningGear = source.runningGear;
             steeringTurnTime = source.steeringTurnTime;
             steeringReturnTime = source.steeringReturnTime;
             wheelDefinitions = source.wheelDefinitions;
@@ -290,13 +311,19 @@ namespace MadMachines
                     Vector3 forward = Vector3.ProjectOnPlane(steering * forwardAxis, hit.normal).normalized;
                     Vector3 side = Vector3.Cross(hit.normal, forward);
                     float surfaceGrip = hit.collider.GetComponent<SurfaceGrip>()?.At(hit.point) ?? 1f;
-                    float gripScale = wheel.GripMultiplier * surfaceGrip
+                    bool loose = runningGear != GarageRunningGear.Standard && hit.collider.TryGetComponent<LooseGround>(out _);
+                    float gearGrip = runningGear == GarageRunningGear.Road ? (loose ? 0.78f : 1.16f) :
+                        runningGear == GarageRunningGear.OffRoad ? (loose ? 1.25f : 0.9f) : 1f;
+                    float gripScale = wheel.GripMultiplier * surfaceGrip * gearGrip
                         * (command.Handbrake ? wheel.HandbrakeGripMultiplier : 1f);
                     float lateralForce = -Vector3.Dot(velocity, side) * grip * gripScale * Body.mass * share;
                     float forwardSpeed = Vector3.Dot(velocity, forward);
                     float driveShare = driveTotal > 0f ? DriveWeight(wheel, front, rear) / driveTotal : 0f;
-                    float drive = command.Throttle * engineForce * driveShare
-                        * Mathf.Clamp01(1f - Mathf.Abs(forwardSpeed) / 32f);
+                    float throttle = trackedDrive
+                        ? Mathf.Clamp(command.Throttle - Mathf.Sign(wheel.Mount.x) * targetSteering, -1f, 1f)
+                        : command.Throttle;
+                    float drive = throttle * engineForce * engineMultiplier * driveShare
+                        * Mathf.Clamp01(1f - Mathf.Abs(forwardSpeed) / speedLimit);
                     if (serviceBrake)
                     {
                         float brakeShare = brakeTotal > 0f ? wheel.BrakeWeight / brakeTotal : share;
@@ -307,11 +334,11 @@ namespace MadMachines
                     {
                         drive -= forwardSpeed * Body.mass * 1.5f * wheel.BrakeWeight / brakeTotal * 4f;
                     }
-                    float longitudinalForce = drive - forwardSpeed * 45f * share * 4f;
+                    float longitudinalForce = drive - forwardSpeed * rollingResistance * share * 4f;
                     if (tireFriction > 0f)
                     {
                         float normalLoad = force * Vector3.Dot(up, hit.normal);
-                        float traction = normalLoad * tireFriction;
+                        float traction = normalLoad * tireFriction * gearGrip;
                         longitudinalForce = Mathf.Clamp(longitudinalForce, -traction, traction);
                         // A tire using its grip for drive or braking has less left for cornering.
                         float lateralLimit = Mathf.Sqrt(Mathf.Max(0f, traction * traction - longitudinalForce * longitudinalForce))
@@ -330,6 +357,7 @@ namespace MadMachines
 
         private float DriveWeight(VehicleWheel wheel, float front, float rear)
         {
+            if (trackedDrive) return wheel.DriveWeight;
             return driveMode switch
             {
                 VehicleDrive.Front => wheel.Mount.z >= front - AxleTolerance ? 1f : 0f,

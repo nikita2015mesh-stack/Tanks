@@ -32,10 +32,7 @@ namespace MadMachines.Networking
             // Clients only display the replicated projectile.
             projectileCollider.enabled = IsServer;
             if (IsClient && !IsServer)
-            {
                 model = ProjectileVisual.Attach(gameObject, Ammunition.Appearance);
-                Projectile.AddTrail(gameObject, Ammunition);
-            }
         }
 
         internal void ApplyPresentation(Vector3 velocity) => ProjectileVisual.PointAlong(model, velocity);

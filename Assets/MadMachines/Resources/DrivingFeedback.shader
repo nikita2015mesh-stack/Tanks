@@ -98,18 +98,6 @@ Shader "Mad Machines/Driving Feedback"
                         (1.0 - along * along) * streaks;
                     color = lerp(color * 1.6, half3(3.3, 2.65, 1.55), core);
                 }
-                else if (_Mode > 2.5)
-                {
-                    float variation = sin(uv.x * 32.0 - _Time.y * 13.0);
-                    float across = abs(uv.y * 2.0 - 1.0 + variation * 0.24);
-                    opacity = (1.0 - smoothstep(0.16, 0.86, across)) * lerp(0.45, 1.0, variation * 0.5 + 0.5);
-                }
-                else if (_Mode > 1.5)
-                {
-                    float across = abs(uv.y * 2.0 - 1.0);
-                    opacity = 1.0 - smoothstep(0.12, 1.0, across);
-                    color *= lerp(1.15, 2.8, 1.0 - smoothstep(0.0, 0.48, across));
-                }
                 else if (_Mode > 0.5)
                 {
                     float2 p = uv * 2.0 - 1.0;
@@ -127,7 +115,7 @@ Shader "Mad Machines/Driving Feedback"
                     opacity = edge * lerp(0.47, 1.0, tread);
                 }
                 // Additive effects fade into the background without adding the fog color.
-                bool additive = (_Mode > 1.5 && _Mode < 2.5) || _Mode > 3.5;
+                bool additive = _Mode > 3.5;
                 half3 fog = additive ? half3(0, 0, 0) : half3(unity_FogColor.rgb);
                 return half4(MixFogColor(color, fog, input.fog), input.color.a * opacity * input.visibility);
             }

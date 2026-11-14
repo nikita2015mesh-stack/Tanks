@@ -15,3 +15,20 @@ MonoBehaviour:
   id: bastion-6x6
   displayName: "Бастион 6×6"
   prefab: {fileID: 103, guid: 9a6f7c7a1c9f5c1a9632573a5daecb5f, type: 3}
+  turrets:
+  - id: wedge
+    displayName: "Клиновая"
+    mesh: {fileID: 4300000, guid: 3cf85013f3ae5b299eb5a17e8d37f8ac, type: 2}
+    materials:
+    - {fileID: 2100000, guid: 6257f1316efa5178b3d615850d1dd69a, type: 2}
+    - {fileID: 2100000, guid: 38e89f0cbe975a178561fdc5619fc977, type: 2}
+    - {fileID: 2100000, guid: 8bbee9437fd95f67812452ba30806cdb, type: 2}
+    - {fileID: 2100000, guid: 0648f89ee2c752ff8287b4af3933b29f, type: 2}
+  - id: casemate
+    displayName: "Тяжёлая рубка"
+    mesh: {fileID: 4300000, guid: 5725a33e40ea57449dcbb97985f2d835, type: 2}
+    materials:
+    - {fileID: 2100000, guid: 6257f1316efa5178b3d615850d1dd69a, type: 2}
+    - {fileID: 2100000, guid: 38e89f0cbe975a178561fdc5619fc977, type: 2}
+    - {fileID: 2100000, guid: 8bbee9437fd95f67812452ba30806cdb, type: 2}
+    - {fileID: 2100000, guid: 0648f89ee2c752ff8287b4af3933b29f, type: 2}

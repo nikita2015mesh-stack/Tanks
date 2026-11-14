@@ -19,7 +19,6 @@ namespace MadMachines
 
     public sealed class WeaponSystem : MonoBehaviour
     {
-        private const int TracerInterval = 5;
         internal const int GuidedRocketSlot = 3;
         internal const int UnguidedRocketSlot = 4;
         private const int UnguidedRocketCapacity = 2;
@@ -41,12 +40,12 @@ namespace MadMachines
         private WeaponCooldown unguidedRocketCooldown;
         private int unguidedRocketsSpent;
         private int shotSequence;
-        private int bulletCount;
         private int[] ammunitionSelections;
         private WeaponMount activeMount;
         private WeaponDefinition guidedRocket;
         private WeaponDefinition unguidedRocket;
         private Projectile activeRocket;
+        private bool garageWeaponInstalled;
 
         [Serializable]
         private struct WeaponMount
@@ -79,7 +78,8 @@ namespace MadMachines
         public int Selected { get; private set; } = 1;
         public bool Authority { get; set; } = true;
         internal bool HasGuidedRocket => guidedRocket != null;
-        internal bool HasMultipleWeapons => (definitions != null && definitions.Length > 1) || HasGuidedRocket || HasUnguidedRocket;
+        internal bool HasMultipleWeapons => !garageWeaponInstalled &&
+            ((definitions != null && definitions.Length > 1) || HasGuidedRocket || HasUnguidedRocket);
         internal bool GuidedRocketSelected => HasGuidedRocket && Selected == GuidedRocketSlot;
         internal bool HasUnguidedRocket => unguidedRocket != null;
         internal bool UnguidedRocketSelected => HasUnguidedRocket && Selected == UnguidedRocketSlot;
@@ -124,6 +124,7 @@ namespace MadMachines
 
         public void Select(int index)
         {
+            if (garageWeaponInstalled) return;
             bool selectGuidedRocket = HasGuidedRocket && index == GuidedRocketSlot;
             bool selectUnguidedRocket = HasUnguidedRocket && index == UnguidedRocketSlot;
             if (!selectGuidedRocket && !selectUnguidedRocket && (definitions == null || index < 0 || index >= definitions.Length)) return;
@@ -157,10 +158,103 @@ namespace MadMachines
             return DefaultMount;
         }
 
+        internal void ApplyGarageTurret(VehicleDefinition.TurretOption option)
+        {
+            if (option.Mesh == null) return;
+            ApplyTurretMesh(turret, option);
+            if (mounts == null) return;
+            foreach (WeaponMount mount in mounts)
+                if (mount.Yaw != turret) ApplyTurretMesh(mount.Yaw, option);
+        }
+
+        private static void ApplyTurretMesh(Transform yaw, VehicleDefinition.TurretOption option)
+        {
+            if (yaw == null || !yaw.TryGetComponent(out MeshFilter filter) ||
+                !yaw.TryGetComponent(out MeshRenderer renderer)) return;
+            filter.sharedMesh = option.Mesh;
+            renderer.sharedMaterials = option.Materials;
+        }
+
         internal void EnableLocalRockets(WeaponDefinition guidedOverride, WeaponDefinition unguidedOverride)
         {
             EnableGuidedRocket(guidedOverride != null ? guidedOverride : localGuidedRocket);
             EnableUnguidedRocket(unguidedOverride != null ? unguidedOverride : localUnguidedRocket);
+        }
+
+        internal bool InstallGarageWeapon(GarageWeapon choice, WeaponSystem arsenal, WeaponDefinition heavyCannon)
+        {
+            if (choice == GarageWeapon.Factory || arsenal == null || garageWeaponInstalled) return false;
+            WeaponDefinition definition = arsenal.GarageWeaponDefinition(choice, heavyCannon);
+            if (definition == null || !DefaultMount.IsValid(transform)) return false;
+            WeaponMount source = arsenal.FindMount(definition);
+            bool cannon = choice == GarageWeapon.Cannon || choice == GarageWeapon.HeavyCannon;
+            if (!cannon && (source.Weapon != definition || !source.IsValid(arsenal.transform))) return false;
+
+            WeaponMount next = DefaultMount;
+            if (!cannon)
+            {
+                if (choice == GarageWeapon.GuidedRocket &&
+                    (arsenal.rocketRest == null || !arsenal.rocketRest.IsChildOf(source.Pitch))) return false;
+                if (choice == GarageWeapon.UnguidedRocket &&
+                    (arsenal.leftRocketRest == null || arsenal.rightRocketRest == null ||
+                     !arsenal.leftRocketRest.IsChildOf(source.Pitch) || !arsenal.rightRocketRest.IsChildOf(source.Pitch))) return false;
+
+                Transform pitch = Instantiate(source.Pitch, next.Yaw, false);
+                pitch.name = source.Pitch.name;
+                pitch.localPosition = next.Pitch.localPosition;
+                Transform exit = CorrespondingChild(source.Pitch, source.Muzzle, pitch);
+                next.Pitch.gameObject.SetActive(false);
+                next = new WeaponMount(next.Yaw, pitch, exit);
+                if (choice == GarageWeapon.GuidedRocket)
+                {
+                    rocketRest = CorrespondingChild(source.Pitch, arsenal.rocketRest, pitch);
+                    guidedRocket = definition;
+                    ProjectileVisual.Attach(rocketRest.gameObject, ProjectileAppearance.Rocket);
+                }
+                if (choice == GarageWeapon.UnguidedRocket)
+                {
+                    leftRocketRest = CorrespondingChild(source.Pitch, arsenal.leftRocketRest, pitch);
+                    rightRocketRest = CorrespondingChild(source.Pitch, arsenal.rightRocketRest, pitch);
+                    unguidedRocket = definition;
+                    ProjectileVisual.Attach(leftRocketRest.gameObject, ProjectileAppearance.UnguidedRocket);
+                    ProjectileVisual.Attach(rightRocketRest.gameObject, ProjectileAppearance.UnguidedRocket);
+                }
+            }
+
+            WeaponMount previous = ActiveMount;
+            if (previous.Yaw != next.Yaw && previous.Yaw != transform) previous.Yaw.gameObject.SetActive(false);
+            definitions = new[] { definition };
+            ammunitionSelections = null;
+            activeMount = next;
+            Selected = choice == GarageWeapon.GuidedRocket ? GuidedRocketSlot :
+                choice == GarageWeapon.UnguidedRocket ? UnguidedRocketSlot : 0;
+            next.Yaw.gameObject.SetActive(true);
+            garageWeaponInstalled = true;
+            ApplyAimAngles(Vector2.zero);
+            return true;
+        }
+
+        internal WeaponDefinition GarageWeaponDefinition(GarageWeapon choice, WeaponDefinition heavyCannon)
+        {
+            return choice switch
+            {
+                GarageWeapon.Cannon => GarageWeaponAt(1),
+                GarageWeapon.HeavyCannon => heavyCannon,
+                GarageWeapon.Machinegun => GarageWeaponAt(0),
+                GarageWeapon.GrenadeLauncher => GarageWeaponAt(2),
+                GarageWeapon.GuidedRocket => localGuidedRocket,
+                GarageWeapon.UnguidedRocket => localUnguidedRocket,
+                _ => null
+            };
+        }
+
+        private WeaponDefinition GarageWeaponAt(int index) =>
+            definitions != null && index < definitions.Length ? definitions[index] : null;
+
+        private static Transform CorrespondingChild(Transform sourceRoot, Transform source, Transform copyRoot)
+        {
+            if (source == sourceRoot) return copyRoot;
+            return CorrespondingChild(sourceRoot, source.parent, copyRoot).GetChild(source.GetSiblingIndex());
         }
 
         private void EnableGuidedRocket(WeaponDefinition definition)
@@ -278,10 +372,7 @@ namespace MadMachines
             int shotId = ++shotSequence;
             if (launch == null)
             {
-                if (ammunition.Appearance == ProjectileAppearance.Bullet)
-                    bulletCount = (bulletCount + 1) % TracerInterval;
-                bool tracer = ammunition.Appearance == ProjectileAppearance.Bullet && bulletCount == 0;
-                Projectile projectile = Projectile.Launch(ammunition, position, direction, vehicle, shotId, tracer);
+                Projectile projectile = Projectile.Launch(ammunition, position, direction, vehicle, shotId);
                 if (guided) activeRocket = projectile;
                 if (unguided)
                 {
@@ -305,7 +396,6 @@ namespace MadMachines
             rocketCooldown = default;
             unguidedRocketCooldown = default;
             unguidedRocketsSpent = 0;
-            bulletCount = 0;
         }
     }
 }

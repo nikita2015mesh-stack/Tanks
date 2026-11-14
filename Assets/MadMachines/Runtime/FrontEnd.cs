@@ -6,21 +6,46 @@ namespace MadMachines
 {
     public sealed class FrontEnd : MonoBehaviour
     {
-        private enum Page { Main, Garage }
+        private enum Page { Main, Garage, Modules }
         private enum Dialog { None, GarageChanges, Quit }
+        private enum Module { None, Weapon, Turret, Engine, RunningGear }
         private static readonly string[] LocalMapScenes = { GameFlow.AsphaltTrackScene, GameFlow.DirtTrackScene, GameFlow.ShootingRangeScene };
         private static readonly string[] LocalMapNames = { GameFlow.AsphaltTrackLocation, GameFlow.DirtTrackLocation, GameFlow.ShootingRangeLocation };
         private const string LocalMapKey = "MadMachines.Main.LocalMap.v1";
         private const float PreviewDegreesPerPixel = 0.4f;
+        private const int ModuleIconColumns = 6;
+        private const int ModuleIconRows = 5;
+        private const int ModuleOptionsPerRow = 3;
         private static readonly string[] DriveNames = { "Полный", "Передний", "Задний" };
+        private static readonly Module[] GarageModules = { Module.Weapon, Module.Turret, Module.Engine, Module.RunningGear };
+        private static readonly GarageWeapon[] GarageWeapons =
+        {
+            GarageWeapon.Factory, GarageWeapon.Cannon, GarageWeapon.HeavyCannon, GarageWeapon.Machinegun,
+            GarageWeapon.GrenadeLauncher, GarageWeapon.GuidedRocket, GarageWeapon.UnguidedRocket
+        };
+        // Order follows the rows of GarageModuleIcons.png from top left.
+        private static readonly string[] ModuleIcons =
+        {
+            "Weapon/Factory", "Weapon/Cannon", "Weapon/HeavyCannon", "Weapon/Machinegun", "Weapon/GrenadeLauncher", "Weapon/GuidedRocket",
+            "Weapon/UnguidedRocket", "Weapon/Factory/bastion-6x6", "Weapon/Factory/t34", "Turret/t100", "Turret/t100/scout", "Turret/t100/assault",
+            "Turret/bastion-6x6", "Turret/bastion-6x6/wedge", "Turret/bastion-6x6/casemate", "Turret/t34", "Turret/t34/cast", "Turret/t34/hex",
+            "Engine/Standard", "Engine/Economy", "Engine/Sport", "Wheels/Standard", "Wheels/Road", "Wheels/OffRoad",
+            "Tracks/Standard", "Tracks/Road", "Tracks/OffRoad"
+        };
         private static readonly Rect PreviewControlsArea = new Rect(570, 620, 650, 75);
         [SerializeField] private VehicleDefinition vehicle;
         [SerializeField] private VehicleDefinition[] vehicles;
+        [SerializeField] private VehicleDefinition arsenalVehicle;
+        [SerializeField] private WeaponDefinition heavyCannon;
         private readonly GameSettingsPanel settings = new GameSettingsPanel();
         private Page page;
         private Dialog dialog;
         private VehicleDefinition draftVehicle;
         private VehicleDrive draftDrive;
+        private GarageLoadout draftLoadout;
+        private Module armedModule;
+        private Module openModule;
+        private double moduleClickTime;
         private int localMap;
         private bool rotate = true;
         private string address;
@@ -29,13 +54,18 @@ namespace MadMachines
         private GUIStyle heading;
         private GUIStyle label;
         private GUIStyle button;
+        private GUIStyle moduleButton;
+        private GUIStyle moduleCheckmark;
+        private Texture2D moduleIcons;
+        private string moduleHint;
         private Vector2 scroll;
         private Transform preview;
         private Camera previewCamera;
         private Vector3 previewCenter;
         private Mouse previewDragMouse;
         private static float GuiScale => Mathf.Max(0.1f, Mathf.Min(Screen.width / 1280f, Screen.height / 720f));
-        private bool Dirty => draftVehicle != GameFlow.CurrentVehicle || draftDrive != GameFlow.SelectedDrive;
+        private bool Dirty => draftVehicle != GameFlow.CurrentVehicle || draftDrive != GameFlow.SelectedDrive ||
+            !draftLoadout.Matches(GameFlow.SelectedLoadout);
 
         private void Awake()
         {
@@ -44,14 +74,18 @@ namespace MadMachines
             MatchLobbyServer.StartDedicated();
 #else
             GameFlow.RegisterVehicles(vehicle, vehicles);
+            WeaponSystem arsenal = arsenalVehicle != null && arsenalVehicle.Prefab != null
+                ? arsenalVehicle.Prefab.GetComponent<WeaponSystem>() : null;
+            GameFlow.RegisterGarageArsenal(arsenal, heavyCannon);
             string previousMap = PlayerPrefs.GetString(LocalMapKey, GameFlow.AsphaltTrackScene);
             if (previousMap == "ShootingRange_01") previousMap = GameFlow.ShootingRangeScene;
             localMap = Mathf.Max(0, System.Array.IndexOf(LocalMapScenes, previousMap));
             address = PlayerPrefs.GetString("MadMachines.Server.Address.v1", "127.0.0.1");
             port = PlayerPrefs.GetString("MadMachines.Server.Port.v1", "7777");
             invalidEndpoint = !GameFlow.Lobby.Configure(address, port);
+            moduleIcons = Resources.Load<Texture2D>("GarageModuleIcons");
             CreateStage();
-            BuildPreview(GameFlow.CurrentVehicle);
+            BuildPreview(GameFlow.CurrentVehicle, GameFlow.SelectedLoadout);
             if (GameFlow.ConsumeGarageReturn()) OpenGarage();
 #endif
         }
@@ -75,7 +109,7 @@ namespace MadMachines
             RenderSettings.fog = false;
         }
 
-        private void BuildPreview(VehicleDefinition definition)
+        private void BuildPreview(VehicleDefinition definition, GarageLoadout loadout)
         {
             previewDragMouse = null;
             if (preview != null)
@@ -88,7 +122,21 @@ namespace MadMachines
             preview = new GameObject("Current vehicle preview").transform;
             preview.SetParent(transform);
             Transform source = definition.Prefab.transform;
-            // Copy geometry only; no garage physics, weapons or input components.
+            GameObject staging = null;
+            VehicleDefinition.TurretOption turret = definition.FindTurret(loadout.TurretId);
+            bool customWeapon = loadout.Weapon != GarageWeapon.Factory && GameFlow.GarageArsenal != null;
+            if (turret.Mesh != null || customWeapon)
+            {
+                // Resolve the same mount as the test drive on an inactive copy.
+                staging = new GameObject("Garage preview staging");
+                staging.SetActive(false);
+                source = Instantiate(definition.Prefab.gameObject, staging.transform, false).transform;
+                if (source.TryGetComponent(out WeaponSystem weapons))
+                {
+                    weapons.ApplyGarageTurret(turret);
+                    if (customWeapon) weapons.InstallGarageWeapon(loadout.Weapon, GameFlow.GarageArsenal, heavyCannon);
+                }
+            }
             foreach (MeshFilter mesh in source.GetComponentsInChildren<MeshFilter>(true))
             {
                 MeshRenderer renderer = mesh.GetComponent<MeshRenderer>();
@@ -101,6 +149,7 @@ namespace MadMachines
                 part.AddComponent<MeshFilter>().sharedMesh = mesh.sharedMesh;
                 part.AddComponent<MeshRenderer>().sharedMaterials = renderer.sharedMaterials;
             }
+            if (staging != null) Destroy(staging);
             Bounds bounds = new Bounds(Vector3.zero, Vector3.one);
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>()) bounds.Encapsulate(renderer.bounds);
             previewCenter = bounds.center;
@@ -126,6 +175,7 @@ namespace MadMachines
             if (GameFlow.Loading || Keyboard.current == null || !Keyboard.current.escapeKey.wasPressedThisFrame) return;
             if (dialog != Dialog.None) dialog = Dialog.None;
             else if (settings.IsOpen) settings.Close();
+            else if (page == Page.Modules) BackFromModules();
             else if (page == Page.Garage) LeaveGarage();
             else if (GameFlow.Lobby.WantsMatch) GameFlow.Lobby.SetWaiting(false);
             else dialog = Dialog.Quit;
@@ -179,6 +229,18 @@ namespace MadMachines
             heading ??= new GUIStyle(GUI.skin.label) { fontSize = 28, fontStyle = FontStyle.Bold, wordWrap = true };
             label ??= new GUIStyle(GUI.skin.label) { fontSize = 18, wordWrap = true };
             button ??= new GUIStyle(GUI.skin.button) { fontSize = 17, fixedHeight = 39 };
+            moduleButton ??= new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 15,
+                alignment = TextAnchor.MiddleLeft,
+                wordWrap = true,
+                padding = new RectOffset(12, 10, 4, 4)
+            };
+            moduleCheckmark ??= new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter, fontSize = 20, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.52f, 0.95f, 0.69f) }
+            };
             Matrix4x4 previous = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(Vector3.one * GuiScale);
             GUI.enabled = !GameFlow.Loading && dialog == Dialog.None;
@@ -188,6 +250,7 @@ namespace MadMachines
             GUILayout.Label("БЕЗУМНЫЕ МАШИНЫ", heading);
             if (settings.IsOpen) settings.Draw();
             else if (page == Page.Garage) DrawGarage();
+            else if (page == Page.Modules) DrawModules();
             else DrawMain();
             GUILayout.EndScrollView();
             GUILayout.EndArea();
@@ -211,7 +274,8 @@ namespace MadMachines
         {
             VehicleDefinition current = GameFlow.CurrentVehicle;
             GUILayout.Label(current != null ? current.DisplayName : "Нет доступной машины", label);
-            GUILayout.Label("Привод: " + DriveNames[(int)GameFlow.SelectedDrive - 1], label);
+            string drive = current != null && current.Prefab.TrackedDrive ? "Гусеничный" : DriveNames[(int)GameFlow.SelectedDrive - 1];
+            GUILayout.Label("Привод: " + drive, label);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("ГАРАЖ", button)) OpenGarage();
             if (GUILayout.Button("НАСТРОЙКИ", button)) settings.Open();
@@ -286,6 +350,7 @@ namespace MadMachines
             GameFlow.Lobby.SetWaiting(false);
             draftVehicle = GameFlow.CurrentVehicle;
             draftDrive = GameFlow.SelectedDrive;
+            draftLoadout = GameFlow.SelectedLoadout;
             page = Page.Garage;
             scroll = Vector2.zero;
         }
@@ -297,13 +362,20 @@ namespace MadMachines
             DrawVehicleSelection();
             DrawNotice();
             GUILayout.Label("ПРИВОД", label);
-            draftDrive = (VehicleDrive)(GUILayout.Toolbar((int)draftDrive - 1, DriveNames, button) + 1);
+            bool tracked = draftVehicle != null && draftVehicle.Prefab.TrackedDrive;
+            if (tracked) GUILayout.Label("Гусеничный", label);
+            else draftDrive = (VehicleDrive)(GUILayout.Toolbar((int)draftDrive - 1, DriveNames, button) + 1);
             GUILayout.Label(Dirty ? "Есть неприменённые изменения" : "Текущая конфигурация сохранена", label);
             GUI.enabled = interactable && draftVehicle != null && Dirty;
             if (GUILayout.Button("ПРИМЕНИТЬ", button)) ApplyGarage();
             GUI.enabled = interactable;
             if (GUILayout.Button("СБРОСИТЬ НАСТРОЙКИ", button) && draftVehicle != null)
+            {
+                bool previewChanged = draftLoadout.Weapon != GarageWeapon.Factory || !string.IsNullOrEmpty(draftLoadout.TurretId);
                 draftDrive = draftVehicle.Prefab.DriveMode == VehicleDrive.Configured ? VehicleDrive.All : draftVehicle.Prefab.DriveMode;
+                draftLoadout = default;
+                if (previewChanged) BuildPreview(draftVehicle, draftLoadout);
+            }
             GUILayout.Space(8);
             DrawTestDrive();
             if (GUILayout.Button("НА ГЛАВНЫЙ", button)) LeaveGarage();
@@ -323,16 +395,279 @@ namespace MadMachines
             {
                 bool selected = definition == draftVehicle;
                 GUI.backgroundColor = selected ? new Color(0.42f, 0.9f, 0.64f) : background;
-                bool clicked = GUILayout.Button(selected ? $"✓  {definition.DisplayName} — выбрана" : definition.DisplayName, button);
+                bool clicked = GUILayout.Button(selected ? $"✓  {definition.DisplayName}  ›  Модули" : definition.DisplayName, button);
                 GUI.backgroundColor = background;
-                if (!clicked || selected) continue;
+                if (!clicked) continue;
+                if (selected)
+                {
+                    ShowModules();
+                    continue;
+                }
 
                 draftVehicle = definition;
                 draftDrive = GameFlow.ReadDrive(definition);
-                BuildPreview(definition);
+                draftLoadout = GameFlow.ReadLoadout(definition);
+                BuildPreview(definition, draftLoadout);
             }
             GUILayout.Space(8);
+            if (draftVehicle != null && GUILayout.Button("МОДУЛИ", button)) ShowModules();
         }
+
+        private void ShowModules()
+        {
+            page = Page.Modules;
+            openModule = armedModule = Module.None;
+            scroll = Vector2.zero;
+        }
+
+        private void BackFromModules()
+        {
+            if (openModule != Module.None)
+            {
+                openModule = armedModule = Module.None;
+            }
+            else
+            {
+                page = Page.Garage;
+                armedModule = Module.None;
+            }
+            scroll = Vector2.zero;
+        }
+
+        private void DrawModules()
+        {
+            GUILayout.Label(draftVehicle.DisplayName + " · Модули", heading);
+            moduleHint = null;
+            if (openModule == Module.None) DrawModuleDiagram();
+            else DrawModuleOptions();
+            GUILayout.Label(moduleHint ?? "", label, GUILayout.Height(42f));
+
+            GUILayout.Space(8);
+            bool interactable = GUI.enabled;
+            GUI.enabled = interactable && Dirty;
+            if (GUILayout.Button("ПРИМЕНИТЬ", button)) ApplyGarage();
+            GUI.enabled = interactable;
+            if (GUILayout.Button(openModule == Module.None ? "В ГАРАЖ" : "НАЗАД К МОДУЛЯМ", button)) BackFromModules();
+        }
+
+        private void DrawModuleDiagram()
+        {
+            GUILayout.Label("Дважды нажми на модуль, чтобы открыть его варианты.", label);
+            const float cardHeight = 70f;
+            const float cardStep = 78f;
+            Rect diagram = GUILayoutUtility.GetRect(0f, GarageModules.Length * cardStep, GUILayout.ExpandWidth(true));
+            float split = diagram.x + diagram.width * 0.47f;
+            float center = diagram.y + diagram.height * 0.5f;
+            float cards = split + 24f;
+            GUI.Box(new Rect(diagram.x, center - 38f, split - diagram.x - 18f, 76f), draftVehicle.DisplayName);
+
+            if (Event.current.type == EventType.Repaint)
+            {
+                Color previous = GUI.color;
+                GUI.color = new Color(0.52f, 0.65f, 0.71f);
+                GUI.DrawTexture(new Rect(split, diagram.y + cardStep / 2f, 1f, (GarageModules.Length - 1) * cardStep), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(split - 18f, center, 18f, 1f), Texture2D.whiteTexture);
+                for (int i = 0; i < GarageModules.Length; i++)
+                    GUI.DrawTexture(new Rect(split, diagram.y + (i + 0.5f) * cardStep, 24f, 1f), Texture2D.whiteTexture);
+                GUI.color = previous;
+            }
+
+            for (int i = 0; i < GarageModules.Length; i++)
+            {
+                Module module = GarageModules[i];
+                float cardY = diagram.y + (i + 0.5f) * cardStep - cardHeight / 2f;
+                Rect card = new Rect(cards, cardY, diagram.xMax - cards, cardHeight);
+                bool clicked = DrawModuleCard(card, CurrentModuleIcon(module), ModuleName(module) + " · " + ModuleValue(module),
+                    armedModule == module, true);
+                if (!clicked) continue;
+
+                double now = Time.unscaledTimeAsDouble;
+                if (armedModule == module && now - moduleClickTime <= 0.6) OpenModule(module);
+                armedModule = module;
+                moduleClickTime = now;
+            }
+
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && armedModule != Module.None;
+            if (GUILayout.Button("ОТКРЫТЬ МОДУЛЬ", button)) OpenModule(armedModule);
+            GUI.enabled = enabled;
+        }
+
+        private void OpenModule(Module module)
+        {
+            openModule = module;
+            scroll = Vector2.zero;
+        }
+
+        private string ModuleName(Module module) => module switch
+        {
+            Module.Weapon => "Орудие",
+            Module.Turret => "Башня",
+            Module.Engine => "Двигатель",
+            Module.RunningGear => draftVehicle.Prefab.TrackedDrive ? "Гусеницы" : "Колёса",
+            _ => ""
+        };
+
+        private string ModuleValue(Module module) => module switch
+        {
+            Module.Weapon => WeaponName(draftLoadout.Weapon),
+            Module.Turret => draftVehicle.FindTurret(draftLoadout.TurretId).DisplayName ?? "Штатная башня",
+            Module.Engine => EngineDescription(draftLoadout.Engine),
+            Module.RunningGear => RunningGearDescription(draftLoadout.RunningGear),
+            _ => ""
+        };
+
+        private string CurrentModuleIcon(Module module) => module switch
+        {
+            Module.Weapon => WeaponIcon(draftLoadout.Weapon),
+            Module.Turret => TurretIcon(draftLoadout.TurretId),
+            Module.Engine => "Engine/" + draftLoadout.Engine,
+            Module.RunningGear => RunningGearIcon(draftLoadout.RunningGear),
+            _ => ""
+        };
+
+        private string WeaponIcon(GarageWeapon weapon)
+        {
+            if (weapon != GarageWeapon.Factory) return "Weapon/" + weapon;
+            string vehicleIcon = "Weapon/Factory/" + draftVehicle.Id;
+            return System.Array.IndexOf(ModuleIcons, vehicleIcon) >= 0 ? vehicleIcon : "Weapon/Factory";
+        }
+
+        private string TurretIcon(string optionId)
+        {
+            string stock = "Turret/" + draftVehicle.Id;
+            return string.IsNullOrEmpty(optionId) ? stock : stock + "/" + optionId;
+        }
+
+        private string RunningGearIcon(GarageRunningGear gear) =>
+            (draftVehicle.Prefab.TrackedDrive ? "Tracks/" : "Wheels/") + gear;
+
+        private void DrawModuleOptions()
+        {
+            GUILayout.Label(ModuleName(openModule), label);
+            int count = 0;
+            switch (openModule)
+            {
+                case Module.Weapon:
+                    foreach (GarageWeapon weapon in GarageWeapons)
+                    {
+                        if (weapon != GarageWeapon.Factory &&
+                            (GameFlow.GarageArsenal == null || GameFlow.GarageArsenal.GarageWeaponDefinition(weapon, heavyCannon) == null)) continue;
+                        if (DrawModuleOption(ref count, WeaponIcon(weapon), WeaponName(weapon), weapon == draftLoadout.Weapon) &&
+                            weapon != draftLoadout.Weapon)
+                        {
+                            draftLoadout.Weapon = weapon;
+                            BuildPreview(draftVehicle, draftLoadout);
+                        }
+                    }
+                    break;
+                case Module.Turret:
+                    DrawTurretOption(ref count, null, "Штатная башня");
+                    foreach (VehicleDefinition.TurretOption turret in draftVehicle.Turrets)
+                    {
+                        if (turret.Mesh != null) DrawTurretOption(ref count, turret.Id, turret.DisplayName);
+                    }
+                    break;
+                case Module.Engine:
+                    DrawEngineOption(ref count, GarageEngine.Economy);
+                    DrawEngineOption(ref count, GarageEngine.Standard);
+                    DrawEngineOption(ref count, GarageEngine.Sport);
+                    break;
+                case Module.RunningGear:
+                    DrawRunningGearOption(ref count, GarageRunningGear.Standard);
+                    DrawRunningGearOption(ref count, GarageRunningGear.Road);
+                    DrawRunningGearOption(ref count, GarageRunningGear.OffRoad);
+                    break;
+            }
+            if (count % ModuleOptionsPerRow != 0)
+            {
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
+        }
+
+        private void DrawTurretOption(ref int count, string optionId, string displayName)
+        {
+            bool selected = optionId == draftLoadout.TurretId;
+            if (DrawModuleOption(ref count, TurretIcon(optionId), displayName, selected) && !selected)
+            {
+                draftLoadout.TurretId = optionId;
+                BuildPreview(draftVehicle, draftLoadout);
+            }
+        }
+
+        private void DrawEngineOption(ref int count, GarageEngine engine)
+        {
+            if (DrawModuleOption(ref count, "Engine/" + engine, EngineDescription(engine), engine == draftLoadout.Engine))
+                draftLoadout.Engine = engine;
+        }
+
+        private void DrawRunningGearOption(ref int count, GarageRunningGear gear)
+        {
+            if (DrawModuleOption(ref count, RunningGearIcon(gear), RunningGearDescription(gear), gear == draftLoadout.RunningGear))
+                draftLoadout.RunningGear = gear;
+        }
+
+        private bool DrawModuleOption(ref int count, string icon, string description, bool selected)
+        {
+            if (count % ModuleOptionsPerRow == 0) GUILayout.BeginHorizontal();
+            Rect rect = GUILayoutUtility.GetRect(140f, 96f, moduleButton);
+            bool clicked = DrawModuleCard(rect, icon, description, selected, selected);
+            count++;
+            if (count % ModuleOptionsPerRow == 0) GUILayout.EndHorizontal();
+            return clicked;
+        }
+
+        private bool DrawModuleCard(Rect rect, string icon, string description, bool highlighted, bool checkmark)
+        {
+            int index = moduleIcons != null ? System.Array.IndexOf(ModuleIcons, icon) : -1;
+            bool hovered = GUI.enabled && rect.Contains(Event.current.mousePosition);
+            if (hovered) moduleHint = description;
+            Color previous = GUI.backgroundColor;
+            if (highlighted) GUI.backgroundColor = new Color(0.42f, 0.9f, 0.64f);
+            bool clicked = GUI.Button(rect, index >= 0 ? GUIContent.none : new GUIContent(description), moduleButton);
+            GUI.backgroundColor = previous;
+            if (Event.current.type == EventType.Repaint && index >= 0)
+            {
+                const float iconAspect = 1.5f;
+                float width = Mathf.Min(rect.width - 16f, (rect.height - 8f) * iconAspect);
+                float height = width / iconAspect;
+                Rect image = new Rect(rect.center.x - width / 2f, rect.center.y - height / 2f, width, height);
+                int row = index / ModuleIconColumns;
+                Rect uv = new Rect((index % ModuleIconColumns) / (float)ModuleIconColumns,
+                    1f - (row + 1f) / ModuleIconRows,
+                    1f / ModuleIconColumns, 1f / ModuleIconRows);
+                GUI.DrawTextureWithTexCoords(image, moduleIcons, uv);
+            }
+            if (checkmark)
+                GUI.Label(new Rect(rect.xMax - 28f, rect.yMax - 28f, 24f, 24f), "✓", moduleCheckmark);
+            return clicked;
+        }
+
+        private static string WeaponName(GarageWeapon weapon) => weapon switch
+        {
+            GarageWeapon.Cannon => "Баллистическая пушка",
+            GarageWeapon.HeavyCannon => "Тяжёлая фугасная пушка",
+            GarageWeapon.Machinegun => "Пулемёт",
+            GarageWeapon.GrenadeLauncher => "Гранатомёт",
+            GarageWeapon.GuidedRocket => "ПТУР",
+            GarageWeapon.UnguidedRocket => "НУРСы",
+            _ => "Штатный комплект"
+        };
+
+        private static string EngineDescription(GarageEngine engine) => engine switch
+        {
+            GarageEngine.Economy => "Экономичный · меньше тяга и скорость",
+            GarageEngine.Sport => "Форсированный · выше тяга и скорость",
+            _ => "Штатный · обычная тяга"
+        };
+
+        private static string RunningGearDescription(GarageRunningGear gear) => gear switch
+        {
+            GarageRunningGear.Road => "Дорожные · лучше на твёрдом покрытии",
+            GarageRunningGear.OffRoad => "Вездеходные · лучше на рыхлом грунте",
+            _ => "Штатные · универсальные"
+        };
 
         private void DrawTestDrive()
         {
@@ -351,7 +686,7 @@ namespace MadMachines
             GUI.enabled = interactable;
         }
 
-        private void ApplyGarage() => GameFlow.ApplyVehicle(draftVehicle, draftDrive);
+        private void ApplyGarage() => GameFlow.ApplyVehicle(draftVehicle, draftDrive, draftLoadout);
 
         private void LeaveGarage()
         {
@@ -363,7 +698,7 @@ namespace MadMachines
         {
             page = Page.Main;
             dialog = Dialog.None;
-            BuildPreview(GameFlow.CurrentVehicle);
+            BuildPreview(GameFlow.CurrentVehicle, GameFlow.SelectedLoadout);
         }
 
         private void DrawDialog()

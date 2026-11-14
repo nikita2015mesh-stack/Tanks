@@ -46,6 +46,9 @@ namespace MadMachines
         public static bool CancellationRequested => instance != null && instance.cancel;
         public static bool OverlayVisible => Loading && Time.realtimeSinceStartupAsDouble - instance.startedAt >= 0.5;
         public static VehicleDrive SelectedDrive { get; private set; } = VehicleDrive.All;
+        internal static GarageLoadout SelectedLoadout { get; private set; }
+        internal static WeaponSystem GarageArsenal { get; private set; }
+        internal static WeaponDefinition GarageHeavyCannon { get; private set; }
         public static string Notice { get; private set; }
         internal static Guid MatchTicket { get; private set; }
         internal static MatchLobbyClient Lobby => instance.lobby;
@@ -65,6 +68,9 @@ namespace MadMachines
             CurrentVehicle = null;
             LocalLaunchPending = GarageTestActive = false;
             SelectedDrive = VehicleDrive.All;
+            SelectedLoadout = default;
+            GarageArsenal = null;
+            GarageHeavyCannon = null;
             ServerAddress = Notice = null;
             ServerPort = 0;
             MatchTicket = Guid.Empty;
@@ -88,8 +94,40 @@ namespace MadMachines
             string selected = PlayerPrefs.GetString("MadMachines.Garage.Vehicle.v1", fallback != null ? fallback.Id : "");
             CurrentVehicle = catalog.Find(item => item.Id == selected);
             if (CurrentVehicle == null && catalog.Count > 0) CurrentVehicle = catalog[0];
-            if (CurrentVehicle != null) SelectedDrive = ReadDrive(CurrentVehicle);
+            SelectedLoadout = default;
+            if (CurrentVehicle != null)
+            {
+                SelectedDrive = ReadDrive(CurrentVehicle);
+                SelectedLoadout = ReadLoadout(CurrentVehicle);
+            }
         }
+
+        internal static void RegisterGarageArsenal(WeaponSystem arsenal, WeaponDefinition heavyCannon)
+        {
+            GarageArsenal = arsenal;
+            GarageHeavyCannon = heavyCannon;
+        }
+
+        internal static GarageLoadout ReadLoadout(VehicleDefinition definition)
+        {
+            if (definition == null) return default;
+            return new GarageLoadout
+            {
+                Weapon = ReadGarageOption<GarageWeapon>(definition, "Weapon"),
+                Engine = ReadGarageOption<GarageEngine>(definition, "Engine"),
+                RunningGear = ReadGarageOption<GarageRunningGear>(definition, "RunningGear"),
+                TurretId = definition.FindTurret(PlayerPrefs.GetString(GarageModuleKey(definition, "Turret"), "")).Id
+            };
+        }
+
+        private static T ReadGarageOption<T>(VehicleDefinition definition, string module) where T : struct, Enum
+        {
+            string saved = PlayerPrefs.GetString(GarageModuleKey(definition, module), "");
+            return Enum.TryParse(saved, out T result) && Enum.IsDefined(typeof(T), result) ? result : default;
+        }
+
+        private static string GarageModuleKey(VehicleDefinition definition, string module) =>
+            "MadMachines.Garage." + module + ".v1." + definition.Id;
 
         private static void AddVehicle(VehicleDefinition definition)
         {
@@ -106,11 +144,21 @@ namespace MadMachines
 
         public static void ApplyVehicle(VehicleDefinition definition, VehicleDrive drive)
         {
+            ApplyVehicle(definition, drive, ReadLoadout(definition));
+        }
+
+        internal static void ApplyVehicle(VehicleDefinition definition, VehicleDrive drive, GarageLoadout loadout)
+        {
             if (!catalog.Contains(definition)) return;
             CurrentVehicle = definition;
             SelectedDrive = (VehicleDrive)Mathf.Clamp((int)drive, 1, 3);
+            SelectedLoadout = loadout;
             PlayerPrefs.SetString("MadMachines.Garage.Vehicle.v1", definition.Id);
             PlayerPrefs.SetInt("MadMachines.Garage.Drive.v1." + definition.Id, (int)SelectedDrive);
+            PlayerPrefs.SetString(GarageModuleKey(definition, "Weapon"), loadout.Weapon.ToString());
+            PlayerPrefs.SetString(GarageModuleKey(definition, "Engine"), loadout.Engine.ToString());
+            PlayerPrefs.SetString(GarageModuleKey(definition, "RunningGear"), loadout.RunningGear.ToString());
+            PlayerPrefs.SetString(GarageModuleKey(definition, "Turret"), loadout.TurretId ?? "");
             PlayerPrefs.Save();
         }
 

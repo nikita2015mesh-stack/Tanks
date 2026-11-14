@@ -20,19 +20,15 @@ namespace MadMachines
         private int sweepLayers;
         private Action<Collider, Vector3> finish;
         private Transform model;
-        private LineRenderer tracerLine;
-        private Vector3 launchPoint;
         private List<Collider> penetratedPlates;
         private Vector3 guidancePoint;
         private bool hasGuidancePoint;
-        private TrailRenderer smokeTrail;
 
         internal bool InFlight => !detonated && isActiveAndEnabled;
         internal bool IsGuiding { get; private set; }
         internal float RemainingLifetimeFraction => InFlight ? Mathf.Clamp01((expires - Time.time) / definition.Lifetime) : 0f;
 
-        public static Projectile Launch(ProjectileDefinition definition, Vector3 position, Vector3 direction, VehiclePhysics owner, int shotId,
-            bool tracer = false)
+        public static Projectile Launch(ProjectileDefinition definition, Vector3 position, Vector3 direction, VehiclePhysics owner, int shotId)
         {
             GameObject shot = new GameObject(definition.Label + " projectile") { layer = 2 };
             SceneManager.MoveGameObjectToScene(shot, owner.gameObject.scene);
@@ -40,13 +36,10 @@ namespace MadMachines
             if (!definition.IsRocket) shot.transform.localScale = Vector3.one * definition.Size * 2f;
             shot.AddComponent<SphereCollider>().radius = definition.IsRocket ? definition.Size : 0.5f;
             shot.AddComponent<Rigidbody>();
-            AddTrail(shot, definition);
             Projectile projectile = shot.AddComponent<Projectile>();
             projectile.Initialize(definition, direction, owner, shotId);
             projectile.model = ProjectileVisual.Attach(shot, definition.Appearance);
             ProjectileVisual.PointAlong(projectile.model, projectile.body.linearVelocity);
-            if (definition.IsRocket) projectile.smokeTrail = AddRocketSmoke(projectile.model);
-            if (tracer && !Application.isBatchMode) projectile.CreateTracer();
             return projectile;
         }
 
@@ -78,7 +71,6 @@ namespace MadMachines
                 Physics.IgnoreCollision(projectileCollider, collider);
             expires = Time.time + definition.Lifetime;
             previous = body.position;
-            launchPoint = previous;
         }
 
         internal void SetGuidancePoint(Vector3 point)
@@ -89,71 +81,9 @@ namespace MadMachines
 
         internal void StopGuidance() => IsGuiding = false;
 
-        private static TrailRenderer AddRocketSmoke(Transform model)
-        {
-            if (model == null) return null;
-            GameObject smoke = new GameObject("Rocket smoke");
-            smoke.transform.SetParent(model, false);
-            smoke.transform.localPosition = new Vector3(0f, 0f, -0.48f);
-            TrailRenderer trail = smoke.AddComponent<TrailRenderer>();
-            trail.sharedMaterial = DrivingEffects.In(smoke.scene).WakeMaterial;
-            trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            trail.receiveShadows = false;
-            trail.startColor = new Color(1f, 0.94f, 0.76f, 0.9f);
-            trail.endColor = new Color(0.48f, 0.49f, 0.47f, 0f);
-            trail.startWidth = 0.15f;
-            trail.endWidth = 0.03f;
-            trail.time = 1f;
-            return trail;
-        }
-
-        public static void AddTrail(GameObject shot, ProjectileDefinition definition)
-        {
-            if (Application.isBatchMode || !definition.IsShell) return;
-            DrivingEffects effects = DrivingEffects.In(shot.scene);
-            TrailRenderer trail = shot.AddComponent<TrailRenderer>();
-            trail.sharedMaterial = effects.WakeMaterial;
-            trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            trail.receiveShadows = false;
-            trail.minVertexDistance = 0.08f;
-
-            bool penetrator = definition.Appearance == ProjectileAppearance.Penetrator;
-            Color tail = penetrator ? new Color(0.67f, 0.77f, 0.8f) : new Color(0.68f, 0.71f, 0.72f);
-            trail.startColor = new Color(tail.r, tail.g, tail.b, 0.52f);
-            trail.widthCurve = AnimationCurve.Linear(0f, 0.5f, 1f, 1f);
-            trail.widthMultiplier = definition.IsHeavyShell ? 0.46f : penetrator ? 0.16f : 0.28f;
-            trail.time = definition.IsHeavyShell ? 0.28f : penetrator ? 0.12f : 0.20f;
-            tail.a = 0f;
-            trail.endColor = tail;
-        }
-
-        private void CreateTracer()
-        {
-            tracerLine = gameObject.AddComponent<LineRenderer>();
-            tracerLine.sharedMaterial = DrivingEffects.In(gameObject.scene).TracerMaterial;
-            tracerLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            tracerLine.receiveShadows = false;
-            tracerLine.startColor = new Color(1f, 0.26f, 0.06f, 0.04f);
-            tracerLine.endColor = new Color(1f, 0.78f, 0.38f, 1f);
-            tracerLine.startWidth = 0.026f;
-            tracerLine.endWidth = 0.092f;
-            tracerLine.useWorldSpace = true;
-            tracerLine.positionCount = 2;
-            tracerLine.SetPosition(0, launchPoint);
-            tracerLine.SetPosition(1, launchPoint);
-        }
-
         private void LateUpdate()
         {
             if (model != null) ProjectileVisual.PointAlong(model, body.linearVelocity);
-            if (tracerLine != null)
-            {
-                Vector3 position = transform.position;
-                Vector3 direction = body.linearVelocity.normalized;
-                float length = Mathf.Clamp(Vector3.Dot(position - launchPoint, direction), 0f, 3.2f);
-                tracerLine.SetPosition(0, position - direction * length);
-                tracerLine.SetPosition(1, position);
-            }
         }
 
         private void FixedUpdate()
@@ -268,12 +198,6 @@ namespace MadMachines
             if (detonated) return;
             detonated = true;
             StopGuidance();
-            if (smokeTrail != null)
-            {
-                smokeTrail.emitting = false;
-                smokeTrail.transform.SetParent(null, true);
-                Destroy(smokeTrail.gameObject, smokeTrail.time);
-            }
             Vector3 position = body.position;
             Target directTarget = null;
             if (direct != null)
