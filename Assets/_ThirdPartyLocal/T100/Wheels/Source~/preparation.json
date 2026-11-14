@@ -1,0 +1,70 @@
+{
+  "source": "Assets/ASEED/Stylized Tactical Vehicle/Source/T100_FREE.fbx",
+  "blender": "4.3.2",
+  "wheels": [
+    {
+      "source_object": "SM_Wheel_1",
+      "output": "Wheel_FL.fbx",
+      "removed_loose_vertices": 1,
+      "removed_center_offset_m": [
+        -0.2125154286623001,
+        -5.960464477539063e-08,
+        0.0
+      ],
+      "dimensions_m": [
+        0.5120908617973328,
+        1.0923089981079102,
+        1.0923088788986206
+      ],
+      "radius_m": 0.5461544990539551
+    },
+    {
+      "source_object": "SM_Wheel_2",
+      "output": "Wheel_FR.fbx",
+      "removed_loose_vertices": 0,
+      "removed_center_offset_m": [
+        -2.1264474391937256,
+        -1.4901161193847656e-07,
+        -2.9802322387695312e-08
+      ],
+      "dimensions_m": [
+        0.512090802192688,
+        1.0923089981079102,
+        1.092308759689331
+      ],
+      "radius_m": 0.5461544990539551
+    },
+    {
+      "source_object": "SM_Wheel_3",
+      "output": "Wheel_RL.fbx",
+      "removed_loose_vertices": 0,
+      "removed_center_offset_m": [
+        -0.2125154286623001,
+        -5.960464477539063e-08,
+        0.0
+      ],
+      "dimensions_m": [
+        0.5120908617973328,
+        1.0923089981079102,
+        1.0923088788986206
+      ],
+      "radius_m": 0.5461544990539551
+    },
+    {
+      "source_object": "SM_Wheel_4",
+      "output": "Wheel_RR.fbx",
+      "removed_loose_vertices": 0,
+      "removed_center_offset_m": [
+        -2.1264474391937256,
+        0.0,
+        -2.9802322387695312e-08
+      ],
+      "dimensions_m": [
+        0.512090802192688,
+        1.0923088788986206,
+        1.092308759689331
+      ],
+      "radius_m": 0.5461544394493103
+    }
+  ]
+}

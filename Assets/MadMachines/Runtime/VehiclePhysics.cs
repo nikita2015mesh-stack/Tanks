@@ -1,0 +1,460 @@
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+namespace MadMachines
+{
+    public struct VehicleCommand
+    {
+        public float Throttle;
+        public float Steering;
+        public bool Handbrake;
+        internal bool BrakeBeforeReversing;
+    }
+
+    public enum VehicleDrive
+    {
+        Configured, All, Front, Rear
+    }
+
+    [RequireComponent(typeof(Rigidbody))]
+    public sealed class VehiclePhysics : MonoBehaviour
+    {
+        private const float MinimumGroundAlignment = 0.2f;
+        private const float AxleTolerance = 0.1f;
+        private const float ParkingSpeed = 0.55f;
+        private const float ServiceBrakeAcceleration = 8f;
+        private const RigidbodyConstraints ParkingConstraints = RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ;
+        private static readonly Vector3 DefaultCenterOfMass = new Vector3(0f, -0.35f, 0f);
+
+        [SerializeField] private float engineForce = 10500f;
+        [SerializeField] private float spring = 34000f;
+        [SerializeField] private float damper = 4800f;
+        [SerializeField] private float grip = 7f;
+        [SerializeField, Min(0f)] private float tireFriction;
+        [SerializeField, Min(1f)] private float gravityMultiplier = 1f;
+        [SerializeField] private VehicleDrive driveMode;
+        [SerializeField] private bool trackedDrive;
+        [SerializeField, Min(0.01f)] private float steeringTurnTime = 0.32f;
+        [SerializeField, Min(0.01f)] private float steeringReturnTime = 0.20f;
+        // Retained as defaults for scenes created before configurable wheels.
+        [SerializeField] private float suspensionLength = 0.65f;
+        [SerializeField] private float wheelRadius = 0.43f;
+        [SerializeField, HideInInspector] private Transform[] wheels;
+        [SerializeField] private VehicleWheel[] wheelDefinitions;
+        private Rigidbody body;
+        private VehicleWheelState[] wheelStates;
+        private VehicleWheelState[] previousStates;
+        private VehicleCommand command;
+        private RigidbodyConstraints originalConstraints;
+        private bool parkingLocked;
+        private float engineMultiplier = 1f;
+        private float speedLimit = 32f;
+        private float rollingResistance = 45f;
+        private GarageRunningGear runningGear;
+
+        internal bool ParkingBrake { get; set; }
+        internal bool AutoHoldEnabled { get; set; }
+        internal bool IsHeld => parkingLocked;
+        public bool Authority { get; set; } = true;
+        public VehicleDrive DriveMode { get => driveMode; set => driveMode = value; }
+        internal bool TrackedDrive => trackedDrive;
+        internal bool HasDriveInput(float throttle, float steering) =>
+            throttle != 0f || (trackedDrive && steering != 0f);
+        public Rigidbody Body => body != null ? body : body = GetComponent<Rigidbody>();
+        public float Speed => Body.linearVelocity.magnitude * 3.6f;
+        public int GroundedWheels { get; private set; }
+        public int WheelCount => wheelDefinitions != null && wheelDefinitions.Length > 0 ? wheelDefinitions.Length : 4;
+        internal float Throttle => command.Throttle;
+
+        internal void ApplyGarageMobility(GarageLoadout loadout)
+        {
+            engineMultiplier = loadout.Engine == GarageEngine.Sport ? 1.32f : loadout.Engine == GarageEngine.Economy ? 0.72f : 1f;
+            speedLimit = loadout.Engine == GarageEngine.Sport ? 39f : loadout.Engine == GarageEngine.Economy ? 24f : 32f;
+            runningGear = loadout.RunningGear;
+            rollingResistance = runningGear == GarageRunningGear.Road ? 34f : runningGear == GarageRunningGear.OffRoad ? 55f : 45f;
+        }
+
+        private void Awake()
+        {
+            if (Body.automaticCenterOfMass)
+            {
+                Body.centerOfMass = DefaultCenterOfMass;
+            }
+            InitializeWheels();
+            ResetWheelStates();
+            if (GetComponentInChildren<VehicleVisuals>(true) == null && wheels != null && wheels.Length > 0)
+            {
+                gameObject.AddComponent<VehicleVisuals>().Configure(this, null, wheels);
+            }
+        }
+
+        public void Configure(Transform[] visualWheels = null)
+        {
+            wheels = visualWheels;
+            InitializeWheels();
+            ResetWheelStates();
+            if (visualWheels != null)
+            {
+                VehicleVisuals visuals = GetComponentInChildren<VehicleVisuals>(true);
+                if (visuals == null)
+                {
+                    visuals = gameObject.AddComponent<VehicleVisuals>();
+                }
+                visuals.Configure(this, null, visualWheels);
+            }
+            Body.mass = 850f;
+            Body.centerOfMass = DefaultCenterOfMass;
+            Body.interpolation = RigidbodyInterpolation.Interpolate;
+            Body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            Body.angularDamping = 0.9f;
+        }
+
+        public void InitializeWheels()
+        {
+            if (wheelDefinitions == null || wheelDefinitions.Length == 0)
+            {
+                wheelDefinitions = new VehicleWheel[4];
+            }
+            for (int i = 0; i < wheelDefinitions.Length; i++)
+            {
+                if (wheelDefinitions[i] == null)
+                {
+                    wheelDefinitions[i] = VehicleWheel.CreateDefault(i, wheelRadius, suspensionLength);
+                }
+            }
+            if (wheelStates == null || wheelStates.Length != WheelCount)
+            {
+                wheelStates = new VehicleWheelState[WheelCount];
+                previousStates = new VehicleWheelState[WheelCount];
+                ResetWheelStates();
+            }
+        }
+
+        public VehicleWheel GetWheelDefinition(int index)
+        {
+            if (wheelDefinitions == null || wheelDefinitions.Length == 0 || wheelDefinitions[index] == null)
+            {
+                return VehicleWheel.CreateDefault(index, wheelRadius, suspensionLength);
+            }
+            return wheelDefinitions[index];
+        }
+
+        public Vector3 GetWheelPosition(int index)
+        {
+            VehicleWheel wheel = GetWheelDefinition(index);
+            return wheel.GetPosition(wheelStates == null ? wheel.Travel : wheelStates[index].Extension);
+        }
+
+        public float GetWheelSteering(int index) => wheelStates == null ? 0f : wheelStates[index].Steering;
+
+        public VehicleWheelState GetWheelVisualState(int index)
+        {
+            if (wheelStates == null || wheelStates.Length != WheelCount)
+            {
+                return new VehicleWheelState { Extension = GetWheelDefinition(index).Travel };
+            }
+            VehicleWheelState current = wheelStates[index];
+            if (Body.interpolation != RigidbodyInterpolation.Interpolate)
+            {
+                return current;
+            }
+            float alpha = Mathf.Clamp01((Time.time - Time.fixedTime) / Time.fixedDeltaTime);
+            VehicleWheelState previous = previousStates[index];
+            current.Extension = Mathf.Lerp(previous.Extension, current.Extension, alpha);
+            current.Steering = Mathf.Lerp(previous.Steering, current.Steering, alpha);
+            current.Rotation = Mathf.Lerp(previous.Rotation, current.Rotation, alpha);
+            return current;
+        }
+
+        public void Submit(VehicleCommand value)
+        {
+            command = value;
+        }
+
+        private void FixedUpdate()
+        {
+            if (!Authority)
+            {
+                SetParkingLock(false);
+                return;
+            }
+            Step(command, gameObject.scene.GetPhysicsScene(), Time.fixedDeltaTime);
+            ApplyParkingBrake();
+        }
+
+        private void ApplyParkingBrake()
+        {
+            Rigidbody rb = Body;
+            if ((!ParkingBrake && !AutoHoldEnabled) || HasDriveInput(command.Throttle, command.Steering) ||
+                rb.isKinematic || GroundedWheels < Mathf.Min(3, WheelCount))
+            {
+                SetParkingLock(false);
+                return;
+            }
+
+            Vector3 drift = Vector3.ProjectOnPlane(rb.linearVelocity, Vector3.up);
+            if (parkingLocked || drift.sqrMagnitude <= ParkingSpeed * ParkingSpeed)
+            {
+                SetParkingLock(true);
+            }
+            else if (ParkingBrake)
+            {
+                rb.AddForce(-Vector3.ClampMagnitude(drift / Time.fixedDeltaTime, ServiceBrakeAcceleration), ForceMode.Acceleration);
+            }
+        }
+
+        private void SetParkingLock(bool locked)
+        {
+            if (parkingLocked == locked) return;
+            Rigidbody rb = Body;
+            if (locked)
+            {
+                originalConstraints = rb.constraints;
+                rb.linearVelocity = Vector3.Project(rb.linearVelocity, Vector3.up);
+                rb.constraints = originalConstraints | ParkingConstraints;
+            }
+            else
+            {
+                rb.constraints = originalConstraints;
+            }
+            parkingLocked = locked;
+        }
+
+        private void OnDisable() => SetParkingLock(false);
+
+        internal void CopySimulationSettings(VehiclePhysics source, VehicleDrive drive)
+        {
+            engineForce = source.engineForce;
+            spring = source.spring;
+            damper = source.damper;
+            grip = source.grip;
+            tireFriction = source.tireFriction;
+            gravityMultiplier = source.gravityMultiplier;
+            trackedDrive = source.trackedDrive;
+            engineMultiplier = source.engineMultiplier;
+            speedLimit = source.speedLimit;
+            rollingResistance = source.rollingResistance;
+            runningGear = source.runningGear;
+            steeringTurnTime = source.steeringTurnTime;
+            steeringReturnTime = source.steeringReturnTime;
+            wheelDefinitions = source.wheelDefinitions;
+            driveMode = drive;
+            InitializeWheels();
+        }
+
+        internal void RestoreWheelState(int index, VehicleWheelState state)
+        {
+            wheelStates[index] = state;
+            previousStates[index] = state;
+        }
+
+        internal void Step(VehicleCommand command, PhysicsScene physicsScene, float step)
+        {
+            InitializeWheels();
+            Quaternion rotation = Body.rotation;
+            Vector3 up = rotation * Vector3.up;
+            Vector3 forwardAxis = rotation * Vector3.forward;
+            bool serviceBrake = command.BrakeBeforeReversing &&
+                Vector3.Dot(Body.linearVelocity, forwardAxis) * command.Throttle < -ParkingSpeed;
+            Matrix4x4 localToWorld = Matrix4x4.TRS(Body.position, rotation, transform.lossyScale);
+            float supportTotal = 0f;
+            float driveTotal = 0f;
+            float brakeTotal = 0f;
+            float front = float.NegativeInfinity;
+            float rear = float.PositiveInfinity;
+            foreach (VehicleWheel wheel in wheelDefinitions)
+            {
+                supportTotal += wheel.SupportWeight;
+                brakeTotal += wheel.BrakeWeight;
+                front = Mathf.Max(front, wheel.Mount.z);
+                rear = Mathf.Min(rear, wheel.Mount.z);
+            }
+            foreach (VehicleWheel wheel in wheelDefinitions)
+            {
+                driveTotal += DriveWeight(wheel, front, rear);
+            }
+            if (Body.useGravity && !Body.isKinematic && gravityMultiplier > 1f)
+            {
+                Body.AddForce(Physics.gravity * (gravityMultiplier - 1f), ForceMode.Acceleration);
+            }
+
+            GroundedWheels = 0;
+            float targetSteering = Mathf.Clamp(command.Steering, -1f, 1f);
+            float steeringTime = targetSteering == 0f ? steeringReturnTime : steeringTurnTime;
+            float steeringFraction = step / Mathf.Max(0.01f, steeringTime);
+            for (int i = 0; i < WheelCount; i++)
+            {
+                VehicleWheel wheel = wheelDefinitions[i];
+                VehicleWheelState previous = wheelStates[i];
+                previous.Rotation = Mathf.Repeat(previous.Rotation, 360f);
+                previousStates[i] = previous;
+                VehicleWheelState state = previous;
+                // Wheel steering is already part of the authoritative snapshot used for replay.
+                float fullAngle = wheel.SteeringAngle;
+                state.Steering = Mathf.MoveTowards(previous.Steering, targetSteering * fullAngle,
+                    steeringFraction * Mathf.Abs(fullAngle));
+                state.Grounded = FindContact(physicsScene, localToWorld, up, wheel, previous.Extension, out RaycastHit hit, out float extension);
+                state.Extension = extension;
+                if (state.Grounded)
+                {
+                    GroundedWheels++;
+                    Vector3 origin = localToWorld.MultiplyPoint3x4(wheel.Mount);
+                    Vector3 velocity = Body.GetPointVelocity(origin);
+                    float share = supportTotal > 0f ? wheel.SupportWeight / supportTotal : 0f;
+                    // Keep the original four-wheel tuning, but preserve total stiffness and grip as count changes.
+                    float stiffness = spring * wheel.SpringMultiplier * share * 4f;
+                    float damping = damper * wheel.DamperMultiplier * share * 4f;
+                    float force = Mathf.Clamp((wheel.Travel - extension) * stiffness
+                        - Vector3.Dot(velocity, up) * damping, 0f, stiffness * wheel.Travel * 2f);
+                    Body.AddForceAtPosition(up * force, origin);
+                    Quaternion steering = Quaternion.AngleAxis(state.Steering, up);
+                    Vector3 forward = Vector3.ProjectOnPlane(steering * forwardAxis, hit.normal).normalized;
+                    Vector3 side = Vector3.Cross(hit.normal, forward);
+                    float surfaceGrip = hit.collider.GetComponent<SurfaceGrip>()?.At(hit.point) ?? 1f;
+                    bool loose = runningGear != GarageRunningGear.Standard && hit.collider.TryGetComponent<LooseGround>(out _);
+                    float gearGrip = runningGear == GarageRunningGear.Road ? (loose ? 0.78f : 1.16f) :
+                        runningGear == GarageRunningGear.OffRoad ? (loose ? 1.25f : 0.9f) : 1f;
+                    float gripScale = wheel.GripMultiplier * surfaceGrip * gearGrip
+                        * (command.Handbrake ? wheel.HandbrakeGripMultiplier : 1f);
+                    float lateralForce = -Vector3.Dot(velocity, side) * grip * gripScale * Body.mass * share;
+                    float forwardSpeed = Vector3.Dot(velocity, forward);
+                    float driveShare = driveTotal > 0f ? DriveWeight(wheel, front, rear) / driveTotal : 0f;
+                    float throttle = trackedDrive
+                        ? Mathf.Clamp(command.Throttle - Mathf.Sign(wheel.Mount.x) * targetSteering, -1f, 1f)
+                        : command.Throttle;
+                    float drive = throttle * engineForce * engineMultiplier * driveShare
+                        * Mathf.Clamp01(1f - Mathf.Abs(forwardSpeed) / speedLimit);
+                    if (serviceBrake)
+                    {
+                        float brakeShare = brakeTotal > 0f ? wheel.BrakeWeight / brakeTotal : share;
+                        float acceleration = Mathf.Clamp(-forwardSpeed / step, -ServiceBrakeAcceleration, ServiceBrakeAcceleration);
+                        drive = acceleration * Body.mass * brakeShare;
+                    }
+                    if (command.Handbrake && brakeTotal > 0f)
+                    {
+                        drive -= forwardSpeed * Body.mass * 1.5f * wheel.BrakeWeight / brakeTotal * 4f;
+                    }
+                    float longitudinalForce = drive - forwardSpeed * rollingResistance * share * 4f;
+                    if (tireFriction > 0f)
+                    {
+                        float normalLoad = force * Vector3.Dot(up, hit.normal);
+                        float traction = normalLoad * tireFriction * gearGrip;
+                        longitudinalForce = Mathf.Clamp(longitudinalForce, -traction, traction);
+                        // A tire using its grip for drive or braking has less left for cornering.
+                        float lateralLimit = Mathf.Sqrt(Mathf.Max(0f, traction * traction - longitudinalForce * longitudinalForce))
+                            * Mathf.Clamp01(gripScale);
+                        lateralForce = Mathf.Clamp(lateralForce, -lateralLimit, lateralLimit);
+                    }
+                    Body.AddForceAtPosition(forward * longitudinalForce + side * lateralForce, hit.point);
+                    // Rolling presentation only; tire slip and wheel inertia are not simulated yet.
+                    state.AngularSpeed = forwardSpeed / wheel.Radius * Mathf.Rad2Deg;
+                }
+                state.Rotation = previous.Rotation + state.AngularSpeed * step;
+                wheelStates[i] = state;
+            }
+            Body.AddForce(-Body.linearVelocity * Body.linearVelocity.magnitude * 0.7f);
+        }
+
+        private float DriveWeight(VehicleWheel wheel, float front, float rear)
+        {
+            if (trackedDrive) return wheel.DriveWeight;
+            return driveMode switch
+            {
+                VehicleDrive.Front => wheel.Mount.z >= front - AxleTolerance ? 1f : 0f,
+                VehicleDrive.Rear => wheel.Mount.z <= rear + AxleTolerance ? 1f : 0f,
+                VehicleDrive.All => 1f,
+                _ => wheel.DriveWeight
+            };
+        }
+
+        private bool FindContact(PhysicsScene physicsScene, Matrix4x4 localToWorld, Vector3 up, VehicleWheel wheel,
+            float previousExtension, out RaycastHit hit, out float extension)
+        {
+            extension = Mathf.Clamp(previousExtension, 0f, wheel.Travel);
+            hit = default;
+            int iterations = wheel.Geometry == SuspensionGeometry.ParallelWishbone ? 3 : 1;
+            for (int i = 0; i < iterations; i++)
+            {
+                Vector3 localOrigin = wheel.GetPosition(extension);
+                localOrigin.y = wheel.Mount.y;
+                // Start above the fully compressed hub so the sphere also detects a landing
+                // whose surface is already closer than one wheel radius to the mount.
+                float castOffset = wheel.Radius;
+                Vector3 origin = localToWorld.MultiplyPoint3x4(localOrigin) + up * castOffset;
+                if (!physicsScene.SphereCast(origin, wheel.Radius, -up, out hit,
+                    wheel.Travel + castOffset, 1, QueryTriggerInteraction.Ignore) ||
+                    Vector3.Dot(hit.normal, up) < MinimumGroundAlignment ||
+                    Vector3.Dot(hit.normal, Vector3.up) < MinimumGroundAlignment)
+                {
+                    extension = wheel.Travel;
+                    return false;
+                }
+                // SphereCast measures hub travel; its radius already accounts for the slope normal.
+                float nextExtension = Mathf.Clamp(hit.distance - castOffset, 0f, wheel.Travel);
+                if (Mathf.Abs(nextExtension - extension) < 0.001f)
+                {
+                    extension = nextExtension;
+                    break;
+                }
+                extension = nextExtension;
+            }
+            return true;
+        }
+
+        internal bool FindVisibleContact(PhysicsScene physicsScene, Matrix4x4 pose, Vector3 up, int index,
+            float visualExtension, out RaycastHit hit)
+        {
+            return FindContact(physicsScene, pose, up, GetWheelDefinition(index), visualExtension,
+                out hit, out float extension) && extension <= visualExtension + 0.12f;
+        }
+
+        private void ResetWheelStates()
+        {
+            GroundedWheels = 0;
+            for (int i = 0; i < WheelCount; i++)
+            {
+                VehicleWheelState state = new VehicleWheelState { Extension = GetWheelDefinition(i).Travel };
+                wheelStates[i] = state;
+                previousStates[i] = state;
+            }
+        }
+
+        private void OnDrawGizmosSelected()
+        {
+            Matrix4x4 previousMatrix = Gizmos.matrix;
+            Gizmos.matrix = transform.localToWorldMatrix;
+            for (int i = 0; i < WheelCount; i++)
+            {
+                VehicleWheel wheel = GetWheelDefinition(i);
+                Gizmos.color = Color.yellow;
+                Vector3 previous = wheel.GetPosition(0f);
+                for (int step = 1; step <= 12; step++)
+                {
+                    Vector3 next = wheel.GetPosition(wheel.Travel * step / 12f);
+                    Gizmos.DrawLine(previous, next);
+                    previous = next;
+                }
+                Gizmos.color = Color.cyan;
+                Gizmos.DrawWireSphere(wheel.GetPosition(wheel.Travel), wheel.Radius);
+                if (wheel.Geometry == SuspensionGeometry.ParallelWishbone)
+                {
+                    Gizmos.DrawLine(wheel.ArmPivot, wheel.GetPosition(wheel.Travel));
+                }
+            }
+            Gizmos.matrix = previousMatrix;
+        }
+
+        public void Recover(Vector3 position, Quaternion rotation)
+        {
+            SetParkingLock(false);
+            Body.position = position;
+            Body.rotation = rotation;
+            Body.linearVelocity = Vector3.zero;
+            Body.angularVelocity = Vector3.zero;
+            command = default;
+            InitializeWheels();
+            ResetWheelStates();
+            if (TryGetComponent(out VehicleFeedback feedback)) feedback.ResetMotion();
+        }
+    }
+}

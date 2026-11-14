@@ -1,0 +1,320 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using MadMachines.Networking;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+namespace MadMachines
+{
+    // Owns the current car and navigation. Match state still belongs to the session.
+    public sealed class GameFlow : MonoBehaviour
+    {
+        public const string FrontEndScene = "FrontEnd";
+        public const string FrontEndScenePath = "Assets/MadMachines/Scenes/" + FrontEndScene + ".unity";
+        public const string AsphaltTrackScene = "Location_AsphaltTrack";
+        public const string AsphaltTrackScenePath = "Assets/MadMachines/Scenes/" + AsphaltTrackScene + ".unity";
+        public const string AsphaltTrackLocation = "Полигон — асфальтовая трасса";
+        public const string DirtTrackScene = "Location_DirtTrack";
+        public const string DirtTrackScenePath = "Assets/MadMachines/Scenes/" + DirtTrackScene + ".unity";
+        public const string DirtTrackLocation = "Полигон — грунтовая трасса";
+        public const string ShootingRangeScene = "Location_ShootingRange";
+        public const string ShootingRangeScenePath = "Assets/MadMachines/Scenes/" + ShootingRangeScene + ".unity";
+        public const string ShootingRangeLocation = "Стрельбище";
+        public const string ThreeRoadsScene = "Map_01_ThreeRoads";
+        public const string ThreeRoadsScenePath = "Assets/MadMachines/Scenes/" + ThreeRoadsScene + ".unity";
+        public const string ThreeRoadsLocation = "Три дороги";
+        public static readonly string[] PlayerScenes =
+        {
+            FrontEndScenePath,
+            AsphaltTrackScenePath,
+            DirtTrackScenePath,
+            ShootingRangeScenePath,
+            ThreeRoadsScenePath
+        };
+        private static GameFlow instance;
+        private static readonly List<VehicleDefinition> catalog = new List<VehicleDefinition>();
+        public static IReadOnlyList<VehicleDefinition> Vehicles => catalog;
+        public static VehicleDefinition CurrentVehicle { get; private set; }
+        public static bool LocalLaunchPending { get; private set; }
+        public static bool OnlineLaunchPending => MatchTicket != Guid.Empty;
+        public static bool GarageTestActive { get; private set; }
+        public static ChallengeMode LocalMode { get; private set; }
+        public static string ServerAddress { get; private set; }
+        public static ushort ServerPort { get; private set; }
+        public static bool Loading => instance != null && instance.loading;
+        public static bool CancellationRequested => instance != null && instance.cancel;
+        public static bool OverlayVisible => Loading && Time.realtimeSinceStartupAsDouble - instance.startedAt >= 0.5;
+        public static VehicleDrive SelectedDrive { get; private set; } = VehicleDrive.All;
+        internal static GarageLoadout SelectedLoadout { get; private set; }
+        internal static WeaponSystem GarageArsenal { get; private set; }
+        internal static WeaponDefinition GarageHeavyCannon { get; private set; }
+        public static string Notice { get; private set; }
+        internal static Guid MatchTicket { get; private set; }
+        internal static MatchLobbyClient Lobby => instance.lobby;
+        private readonly MatchLobbyClient lobby = new MatchLobbyClient();
+        private bool loading;
+        private bool cancel;
+        private bool canCancel;
+        private double startedAt;
+        private string message;
+        private float progress;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetState()
+        {
+            instance = null;
+            catalog.Clear();
+            CurrentVehicle = null;
+            LocalLaunchPending = GarageTestActive = false;
+            SelectedDrive = VehicleDrive.All;
+            SelectedLoadout = default;
+            GarageArsenal = null;
+            GarageHeavyCannon = null;
+            ServerAddress = Notice = null;
+            ServerPort = 0;
+            MatchTicket = Guid.Empty;
+        }
+
+        public static void Initialize()
+        {
+            if (instance != null) return;
+            instance = new GameObject("Game navigation").AddComponent<GameFlow>();
+            DontDestroyOnLoad(instance.gameObject);
+            SelectedDrive = (VehicleDrive)Mathf.Clamp(PlayerPrefs.GetInt("MadMachines.Garage.Drive.v1", 1), 1, 3);
+        }
+
+        public static void RegisterVehicles(VehicleDefinition fallback, VehicleDefinition[] definitions)
+        {
+            Initialize();
+            catalog.Clear();
+            AddVehicle(fallback);
+            if (definitions != null)
+                foreach (VehicleDefinition definition in definitions) AddVehicle(definition);
+            string selected = PlayerPrefs.GetString("MadMachines.Garage.Vehicle.v1", fallback != null ? fallback.Id : "");
+            CurrentVehicle = catalog.Find(item => item.Id == selected);
+            if (CurrentVehicle == null && catalog.Count > 0) CurrentVehicle = catalog[0];
+            SelectedLoadout = default;
+            if (CurrentVehicle != null)
+            {
+                SelectedDrive = ReadDrive(CurrentVehicle);
+                SelectedLoadout = ReadLoadout(CurrentVehicle);
+            }
+        }
+
+        internal static void RegisterGarageArsenal(WeaponSystem arsenal, WeaponDefinition heavyCannon)
+        {
+            GarageArsenal = arsenal;
+            GarageHeavyCannon = heavyCannon;
+        }
+
+        internal static GarageLoadout ReadLoadout(VehicleDefinition definition)
+        {
+            if (definition == null) return default;
+            return new GarageLoadout
+            {
+                Weapon = ReadGarageOption<GarageWeapon>(definition, "Weapon"),
+                Engine = ReadGarageOption<GarageEngine>(definition, "Engine"),
+                RunningGear = ReadGarageOption<GarageRunningGear>(definition, "RunningGear"),
+                TurretId = definition.FindTurret(PlayerPrefs.GetString(GarageModuleKey(definition, "Turret"), "")).Id
+            };
+        }
+
+        private static T ReadGarageOption<T>(VehicleDefinition definition, string module) where T : struct, Enum
+        {
+            string saved = PlayerPrefs.GetString(GarageModuleKey(definition, module), "");
+            return Enum.TryParse(saved, out T result) && Enum.IsDefined(typeof(T), result) ? result : default;
+        }
+
+        private static string GarageModuleKey(VehicleDefinition definition, string module) =>
+            "MadMachines.Garage." + module + ".v1." + definition.Id;
+
+        private static void AddVehicle(VehicleDefinition definition)
+        {
+            if (definition == null || definition.Prefab == null || string.IsNullOrEmpty(definition.Id) || catalog.Exists(item => item.Id == definition.Id)) return;
+            catalog.Add(definition);
+        }
+
+        public static VehicleDrive ReadDrive(VehicleDefinition definition)
+        {
+            int fallback = catalog.Count > 0 && definition == catalog[0]
+                ? PlayerPrefs.GetInt("MadMachines.Garage.Drive.v1", 1) : 1;
+            return (VehicleDrive)Mathf.Clamp(PlayerPrefs.GetInt("MadMachines.Garage.Drive.v1." + definition.Id, fallback), 1, 3);
+        }
+
+        public static void ApplyVehicle(VehicleDefinition definition, VehicleDrive drive)
+        {
+            ApplyVehicle(definition, drive, ReadLoadout(definition));
+        }
+
+        internal static void ApplyVehicle(VehicleDefinition definition, VehicleDrive drive, GarageLoadout loadout)
+        {
+            if (!catalog.Contains(definition)) return;
+            CurrentVehicle = definition;
+            SelectedDrive = (VehicleDrive)Mathf.Clamp((int)drive, 1, 3);
+            SelectedLoadout = loadout;
+            PlayerPrefs.SetString("MadMachines.Garage.Vehicle.v1", definition.Id);
+            PlayerPrefs.SetInt("MadMachines.Garage.Drive.v1." + definition.Id, (int)SelectedDrive);
+            PlayerPrefs.SetString(GarageModuleKey(definition, "Weapon"), loadout.Weapon.ToString());
+            PlayerPrefs.SetString(GarageModuleKey(definition, "Engine"), loadout.Engine.ToString());
+            PlayerPrefs.SetString(GarageModuleKey(definition, "RunningGear"), loadout.RunningGear.ToString());
+            PlayerPrefs.SetString(GarageModuleKey(definition, "Turret"), loadout.TurretId ?? "");
+            PlayerPrefs.Save();
+        }
+
+        // Compatibility for callers that previously changed only the current drive.
+        public static void SelectDrive(VehicleDrive drive) => ApplyVehicle(CurrentVehicle, drive);
+        public static void ClearNotice() => Notice = null;
+
+        public static void StartLocal(string scene, ChallengeMode mode, bool fromGarage = false)
+        {
+            Initialize();
+            if (Loading || CurrentVehicle == null) return;
+            Lobby.Dispose();
+            MatchTicket = Guid.Empty;
+            LocalLaunchPending = true;
+            GarageTestActive = fromGarage;
+            LocalMode = mode;
+            instance.StartCoroutine(instance.Load(scene, false));
+        }
+
+        public static void ConsumeLocalLaunch() => LocalLaunchPending = false;
+
+        public static bool ConsumeGarageReturn()
+        {
+            bool openGarage = GarageTestActive;
+            GarageTestActive = false;
+            return openGarage;
+        }
+
+        internal static void StartMatch(string address, ushort port, Guid ticket)
+        {
+            if (Loading || CurrentVehicle == null || OnlineLaunchPending || ticket == Guid.Empty) return;
+            LocalLaunchPending = GarageTestActive = false;
+            ServerAddress = address;
+            ServerPort = port;
+            MatchTicket = ticket;
+            instance.StartCoroutine(instance.Load(ThreeRoadsScene, true));
+        }
+
+        internal static void CancelMatchPreparation(string notice = null)
+        {
+            if (notice != null) Notice = notice;
+            if (Loading && MatchTicket != Guid.Empty) instance.cancel = true;
+        }
+
+        public static void ReturnToMain(string notice = null) => ReturnToFrontEnd(false, notice);
+
+        public static void ReturnToGarage() => ReturnToFrontEnd(true);
+
+        private static void ReturnToFrontEnd(bool openGarage, string notice = null)
+        {
+            Initialize();
+            if (Loading) return;
+            if (MatchTicket != Guid.Empty) Lobby.SetWaiting(false);
+            MatchTicket = Guid.Empty;
+            LocalLaunchPending = false;
+            GarageTestActive = openGarage;
+            instance.StartCoroutine(instance.Load(FrontEndScene, false, notice));
+        }
+
+        private IEnumerator Load(string scene, bool online, string notice = null)
+        {
+            loading = true;
+            cancel = false;
+            canCancel = scene != FrontEndScene;
+            startedAt = Time.realtimeSinceStartupAsDouble;
+            Notice = notice;
+            message = "Загружаем карту…";
+            progress = 0;
+            Time.timeScale = 1f;
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            if (!Application.CanStreamedLevelBeLoaded(scene))
+            {
+                Notice = "Карта отсутствует в этой сборке игры.";
+                LocalLaunchPending = loading = false;
+                GarageTestActive = false;
+                if (MatchTicket != Guid.Empty) Lobby.SetWaiting(false);
+                MatchTicket = Guid.Empty;
+                yield break;
+            }
+            AsyncOperation operation = SceneManager.LoadSceneAsync(scene, LoadSceneMode.Single);
+            while (!operation.isDone)
+            {
+                progress = operation.progress;
+                yield return null;
+            }
+            // Scene Start methods initialize local input and the network manager.
+            yield return null;
+            NetworkSandboxSession session = online ? FindAnyObjectByType<NetworkSandboxSession>() : null;
+            if (online && !cancel)
+            {
+                double deadline = Time.realtimeSinceStartupAsDouble + 30;
+                while (!cancel)
+                {
+                    if (session != null && session.SessionInfo?.standings != null) break;
+                    message = session?.Manager != null && session.Manager.IsConnectedClient
+                        ? "Ждём готовности игроков…"
+                        : session != null ? session.Status : "Не удалось подготовить подключение.";
+                    if (session == null || session.ConnectionStopped || Time.realtimeSinceStartupAsDouble >= deadline)
+                    {
+                        Notice = session != null && session.ConnectionStopped ? session.Status : "Не удалось войти за отведённое время. Проверьте доступность сервера.";
+                        cancel = true;
+                        break;
+                    }
+                    yield return null;
+                }
+            }
+            if (cancel && scene != FrontEndScene)
+            {
+                if (MatchTicket != Guid.Empty && (Lobby.Phase != MatchLobbyPhase.Waiting || Notice != null)) Lobby.SetWaiting(false);
+                MatchTicket = Guid.Empty;
+                message = GarageTestActive ? "Возвращаемся в гараж…" : "Возвращаемся на главный…";
+                if (session != null)
+                {
+                    session.Disconnect();
+                    while (session.Manager != null && (session.Manager.IsListening || session.Manager.ShutdownInProgress)) yield return null;
+                }
+                LocalLaunchPending = false;
+                operation = SceneManager.LoadSceneAsync(FrontEndScene, LoadSceneMode.Single);
+                while (!operation.isDone) yield return null;
+            }
+            loading = false;
+            cancel = false;
+        }
+
+        private void Update()
+        {
+            lobby.Update();
+            if (loading && canCancel && UnityEngine.InputSystem.Keyboard.current != null &&
+                UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame) CancelLoading();
+        }
+
+        private void CancelLoading()
+        {
+            if (MatchTicket != Guid.Empty) Lobby.SetWaiting(false);
+            cancel = true;
+        }
+
+        private void OnDestroy() => lobby.Dispose();
+
+        private void OnGUI()
+        {
+            if (!OverlayVisible) return;
+            Matrix4x4 previous = GUI.matrix;
+            GUI.matrix = Matrix4x4.identity;
+            GUI.depth = -1000;
+            GUI.color = new Color(0.025f, 0.04f, 0.06f);
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            var style = new GUIStyle(GUI.skin.label) { fontSize = 22, wordWrap = true };
+            GUI.Label(new Rect(35, 35, Screen.width - 70, 100), message, style);
+            if (message == "Загружаем карту…") GUI.Label(new Rect(35, 135, 200, 35), $"{Mathf.Clamp01(progress / 0.9f):P0}", style);
+            GUI.enabled = !cancel;
+            if (canCancel && GUI.Button(new Rect(35, 185, 240, 45), "ОТМЕНА")) CancelLoading();
+            GUI.enabled = true;
+            GUI.matrix = previous;
+        }
+    }
+}

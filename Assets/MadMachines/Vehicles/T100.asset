@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ebdd6f4ab6de4bfa9df296df658ce13a, type: 3}
+  m_Name: T100
+  m_EditorClassIdentifier: Assembly-CSharp::MadMachines.VehicleDefinition
+  id: t100
+  displayName: "Т100"
+  prefab: {fileID: 2019024801, guid: c9ec2b0173204d8299870ad122ff47d6, type: 3}
+  turrets:
+  - id: scout
+    displayName: "Дозорная"
+    mesh: {fileID: 4300000, guid: e94232d5df7c51c592f48780f2a6f785, type: 2}
+    materials:
+    - {fileID: 2100000, guid: 82ebbe64f78040c8b9f9c0a2b2bb0d13, type: 2}
+    - {fileID: 2100000, guid: bce28bd1c7f84340a5177929de5cc430, type: 2}
+    - {fileID: 2100000, guid: 5b7f784d9dad4c4cbf87e38aab8c6acc, type: 2}
+    - {fileID: 2100000, guid: 36f63e1853394875877258343d898c4f, type: 2}
+  - id: assault
+    displayName: "Штурмовая"
+    mesh: {fileID: 4300000, guid: 2cec8d8dd423594a903426495de58d52, type: 2}
+    materials:
+    - {fileID: 2100000, guid: 82ebbe64f78040c8b9f9c0a2b2bb0d13, type: 2}
+    - {fileID: 2100000, guid: bce28bd1c7f84340a5177929de5cc430, type: 2}
+    - {fileID: 2100000, guid: 5b7f784d9dad4c4cbf87e38aab8c6acc, type: 2}
+    - {fileID: 2100000, guid: 36f63e1853394875877258343d898c4f, type: 2}

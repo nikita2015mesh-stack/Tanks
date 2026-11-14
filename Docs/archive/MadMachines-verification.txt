@@ -1,0 +1,21 @@
+PASS
+PASS Suspension supports stationary chassis
+PASS Throttle accelerates Rigidbody forward
+PASS Steering turns chassis through tire forces
+PASS Recovery resets overturned chassis
+PASS Authority accepts cannon shot
+PASS Reload blocks immediate repeated fire
+PASS Cannon launches gravity-driven projectile
+PASS Physical projectile collision destroys a target
+PASS Non-authoritative weapon rejects shot
+PASS Machine gun fires
+PASS Heavy weapon fires
+PASS Timed grenade detonates and cleans up
+PASS Countdown locks vehicle
+PASS Countdown starts race and unlocks vehicle
+PASS Out-of-order checkpoint rejected
+PASS Physical checkpoint triggers finish race with result
+PASS Combat result penalizes eight missed targets
+PASS Shooting rules score static/moving targets and finish
+PASS Shooting timeout finishes empty attempt
+PASS Retry resets all targets and session state

@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ebdd6f4ab6de4bfa9df296df658ce13a, type: 3}
+  m_Name: T34
+  m_EditorClassIdentifier: Assembly-CSharp::MadMachines.VehicleDefinition
+  id: t34
+  displayName: "Т-34"
+  prefab: {fileID: 103, guid: a30a051b69c25eed80260788121dde24, type: 3}
+  turrets:
+  - id: cast
+    displayName: "Литая"
+    mesh: {fileID: 4300000, guid: 6dbbc530dd905ac38912a1a9c3d9d89c, type: 2}
+    materials:
+    - {fileID: 2100000, guid: f98127bc62395c0db50c1902843fe321, type: 2}
+    - {fileID: 2100000, guid: ea3ead1df9f35bfb814980b502a8e4a0, type: 2}
+    - {fileID: 2100000, guid: 9144539e953551859b8995e143ecd083, type: 2}
+    - {fileID: 2100000, guid: 1dd6944ca8bb5889b5409cf1f232b8ef, type: 2}
+  - id: hex
+    displayName: "Гранёная"
+    mesh: {fileID: 4300000, guid: c8a901b381205543b31ec71922b52ad5, type: 2}
+    materials:
+    - {fileID: 2100000, guid: f98127bc62395c0db50c1902843fe321, type: 2}
+    - {fileID: 2100000, guid: ea3ead1df9f35bfb814980b502a8e4a0, type: 2}
+    - {fileID: 2100000, guid: 9144539e953551859b8995e143ecd083, type: 2}
+    - {fileID: 2100000, guid: 1dd6944ca8bb5889b5409cf1f232b8ef, type: 2}

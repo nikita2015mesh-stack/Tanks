@@ -1,0 +1,27 @@
+# Extracted copy of T3485-Unity.unitypackage
+/.t34-package/
+
+# Local Unity output and settings
+/Library/
+/Temp/
+/Obj/
+/obj/
+/Logs/
+/UserSettings/
+/Build/
+/Builds/
+/MemoryCaptures/
+/Recordings/
+
+# Generated Unity IDE files and local IDE settings
+/*.sln
+/*.slnx
+/*.csproj
+/.vs/
+/.idea/
+/.utmp/
+
+# Local agent state and editor backups
+/.codex/config.toml
+/.serena/
+*.blend[0-9]*

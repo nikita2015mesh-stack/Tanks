@@ -1,0 +1,56 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2dd5e75dbc125ef49b5db9e7769cedc5, type: 3}
+  m_Name: Ballisticcannon
+  m_EditorClassIdentifier: Assembly-CSharp::MadMachines.WeaponDefinition
+  Label: "\u0411\u0430\u043B\u043B\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0430\u044F \u043F\u0443\u0448\u043A\u0430"
+  Speed: 38
+  Mass: 4
+  Interval: 1.15
+  Recoil: 2200
+  Spread: 0.4
+  Lifetime: 6
+  Radius: 5
+  Impulse: 7000
+  Size: 0.22
+  Damage: 100
+  Gravity: 1
+  TimedBounce: 0
+  Color: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  appearance: 2
+  ammunition:
+  - label: Осколочно-фугасный
+    speed: 38
+    mass: 4
+    lifetime: 6
+    size: 0.22
+    damage: 100
+    blastRadius: 5
+    blastImpulse: 7000
+    penetration: 0
+    gravity: 1
+    timedBounce: 0
+    color: {r: 0.8, g: 0.64, b: 0.34, a: 1}
+    appearance: 2
+  - label: Бронебойный
+    speed: 62
+    mass: 4
+    lifetime: 5
+    size: 0.18
+    damage: 75
+    blastRadius: 0
+    blastImpulse: 0
+    penetration: 67
+    gravity: 1
+    timedBounce: 0
+    color: {r: 0.6, g: 0.71, b: 0.77, a: 1}
+    appearance: 3
