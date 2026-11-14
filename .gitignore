@@ -22,5 +22,6 @@
 /.utmp/
 
 # Local agent state and editor backups
+/.codex/config.toml
 /.serena/
 *.blend[0-9]*
