@@ -10,7 +10,7 @@ namespace MadMachines.Networking
         private const double Duration = 300;
         private const double ResultsRetention = 90;
         internal const double RespawnDelay = 3;
-        internal const int MaxHealth = 300;
+        internal const int MaxHealth = 1000;
 
         internal sealed class Participant
         {
@@ -106,6 +106,7 @@ namespace MadMachines.Networking
 
         public void Describe(ServerSessionInfo info, double now)
         {
+            info.maxHealth = MaxHealth;
             info.secondsLeft = Mathf.Max(0, Mathf.CeilToInt((float)(endsAt - now)));
             info.result = Result;
             info.standings = new DeathmatchStanding[participants.Count];

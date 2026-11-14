@@ -14,8 +14,12 @@ namespace MadMachines.Networking
         public int players;
         public int capacity;
         public int secondsLeft;
+        public int maxHealth;
         public string result;
         public DeathmatchStanding[] standings;
+
+        // Earlier servers send only each player's remaining health.
+        internal int DeathmatchMaxHealth => maxHealth > 0 ? maxHealth : 300;
 
         public string Summary => $"{location}\n{(mode == DeathmatchMode ? "Deathmatch" : ModeName(mode == TeamSkirmishMode) + " · открытая сессия")}\nИгроков: {players}/{capacity}";
 

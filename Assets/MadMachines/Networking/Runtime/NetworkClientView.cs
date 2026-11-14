@@ -26,6 +26,7 @@ namespace MadMachines.Networking
         private bool predictionEnabled = true;
         private bool hasFocus = true;
         private GUIStyle statusStyle;
+        private GUIStyle healthBarStyle;
         private bool captureWhenReady;
         private bool captureOnNextVehicle = true;
         private bool waitForFireRelease = true;
@@ -332,11 +333,12 @@ namespace MadMachines.Networking
                 {
                     int seconds = session.MatchSecondsLeft;
                     GUILayout.Label($"До конца матча  {seconds / 60:00}:{seconds % 60:00}");
-                    if (ReadyForPlay)
+                    if (session.Manager.IsConnectedClient && localSlot.HasValue)
                     {
-                        DeathmatchStanding self = System.Array.Find(info.standings, row => row.slot == localVehicle.Slot);
-                        if (self != null) GUILayout.Label($"Прочность: {self.health}/{DeathmatchRound.MaxHealth}    {localVehicle.Speed:0} км/ч · Пушка");
+                        DeathmatchStanding self = System.Array.Find(info.standings, row => row.slot == localSlot.Value);
+                        if (self != null) DrawHealthBar(self.health, info.DeathmatchMaxHealth);
                     }
+                    if (ReadyForPlay) GUILayout.Label($"{localVehicle.Speed:0} км/ч · Пушка");
                 }
                 if (info?.standings != null) DrawStandings(info.standings, finished);
                 if (!playing)
@@ -354,6 +356,30 @@ namespace MadMachines.Networking
             GUILayout.EndVertical();
             GUILayout.EndArea();
             GUI.matrix = previous;
+        }
+
+        private void DrawHealthBar(int health, int maxHealth)
+        {
+            Rect bar = GUILayoutUtility.GetRect(0f, 26f, GUILayout.ExpandWidth(true));
+            if (Event.current.type != EventType.Repaint) return;
+
+            healthBarStyle ??= new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Color.white }
+            };
+            health = Mathf.Clamp(health, 0, maxHealth);
+            float fraction = (float)health / maxHealth;
+            Color previous = GUI.color;
+            GUI.color = new Color(0.08f, 0.11f, 0.14f, 0.96f);
+            GUI.DrawTexture(bar, Texture2D.whiteTexture);
+            GUI.color = Color.Lerp(new Color(0.63f, 0.17f, 0.15f), new Color(0.14f, 0.47f, 0.25f), fraction);
+            if (health > 0)
+                GUI.DrawTexture(new Rect(bar.x + 2f, bar.y + 2f, (bar.width - 4f) * fraction, bar.height - 4f), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            GUI.Label(bar, $"ХП  {health} / {maxHealth}", healthBarStyle);
+            GUI.color = previous;
         }
 
         private void DrawStandings(DeathmatchStanding[] standings, bool finished)
