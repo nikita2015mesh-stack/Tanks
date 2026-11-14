@@ -11,7 +11,9 @@ namespace MadMachines
         private static readonly string[] LocalMapScenes = { GameFlow.AsphaltTrackScene, GameFlow.DirtTrackScene, GameFlow.ShootingRangeScene };
         private static readonly string[] LocalMapNames = { GameFlow.AsphaltTrackLocation, GameFlow.DirtTrackLocation, GameFlow.ShootingRangeLocation };
         private const string LocalMapKey = "MadMachines.Main.LocalMap.v1";
+        private const float PreviewDegreesPerPixel = 0.4f;
         private static readonly string[] DriveNames = { "Полный", "Передний", "Задний" };
+        private static readonly Rect PreviewControlsArea = new Rect(570, 620, 650, 75);
         [SerializeField] private VehicleDefinition vehicle;
         [SerializeField] private VehicleDefinition[] vehicles;
         private readonly GameSettingsPanel settings = new GameSettingsPanel();
@@ -30,6 +32,9 @@ namespace MadMachines
         private Vector2 scroll;
         private Transform preview;
         private Camera previewCamera;
+        private Vector3 previewCenter;
+        private Mouse previewDragMouse;
+        private static float GuiScale => Mathf.Max(0.1f, Mathf.Min(Screen.width / 1280f, Screen.height / 720f));
         private bool Dirty => draftVehicle != GameFlow.CurrentVehicle || draftDrive != GameFlow.SelectedDrive;
 
         private void Awake()
@@ -72,6 +77,7 @@ namespace MadMachines
 
         private void BuildPreview(VehicleDefinition definition)
         {
+            previewDragMouse = null;
             if (preview != null)
             {
                 preview.gameObject.SetActive(false);
@@ -97,9 +103,10 @@ namespace MadMachines
             }
             Bounds bounds = new Bounds(Vector3.zero, Vector3.one);
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>()) bounds.Encapsulate(renderer.bounds);
+            previewCenter = bounds.center;
             float distance = Mathf.Max(8, bounds.size.magnitude * 1.4f);
-            previewCamera.transform.position = bounds.center + new Vector3(0.65f, 0.35f, -0.8f).normalized * distance;
-            previewCamera.transform.LookAt(bounds.center);
+            previewCamera.transform.position = previewCenter + new Vector3(0.65f, 0.35f, -0.8f).normalized * distance;
+            previewCamera.transform.LookAt(previewCenter);
         }
 
         private static bool VisibleInPrefab(Transform part, Transform root)
@@ -114,7 +121,8 @@ namespace MadMachines
 
         private void Update()
         {
-            if (preview != null && rotate && !GameFlow.Loading) preview.Rotate(Vector3.up, 8f * Time.unscaledDeltaTime, Space.World);
+            if (preview == null || GameFlow.Loading) previewDragMouse = null;
+            else if (!UpdatePreviewDrag() && rotate) TurnPreview(8f * Time.unscaledDeltaTime);
             if (GameFlow.Loading || Keyboard.current == null || !Keyboard.current.escapeKey.wasPressedThisFrame) return;
             if (dialog != Dialog.None) dialog = Dialog.None;
             else if (settings.IsOpen) settings.Close();
@@ -123,15 +131,56 @@ namespace MadMachines
             else dialog = Dialog.Quit;
         }
 
+        private bool UpdatePreviewDrag()
+        {
+            Mouse mouse = Mouse.current;
+            if (mouse == null || !mouse.rightButton.isPressed || !Application.isFocused || dialog != Dialog.None)
+            {
+                previewDragMouse = null;
+                return false;
+            }
+
+            if (mouse.rightButton.wasPressedThisFrame)
+            {
+                Vector2 pointer = mouse.position.ReadValue();
+                Vector2 guiPointer = new Vector2(pointer.x, Screen.height - pointer.y) / GuiScale;
+                bool overPreview = previewCamera.pixelRect.Contains(pointer) && !PreviewControlsArea.Contains(guiPointer);
+                previewDragMouse = overPreview ? mouse : null;
+                return overPreview;
+            }
+
+            if (previewDragMouse != mouse)
+            {
+                previewDragMouse = null;
+                return false;
+            }
+
+            Vector2 delta = mouse.delta.ReadValue();
+            if (delta != Vector2.zero)
+            {
+                Transform view = previewCamera.transform;
+                // Rotate relative to the screen so the visible surface follows the drag.
+                Vector3 axis = view.right * delta.y - view.up * delta.x;
+                preview.RotateAround(previewCenter, axis.normalized, delta.magnitude * PreviewDegreesPerPixel / GuiScale);
+            }
+            return true;
+        }
+
+        private void TurnPreview(float degrees) => preview.RotateAround(previewCenter, preview.up, degrees);
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            if (!hasFocus) previewDragMouse = null;
+        }
+
         private void OnGUI()
         {
             if (GameFlow.OverlayVisible) return;
             heading ??= new GUIStyle(GUI.skin.label) { fontSize = 28, fontStyle = FontStyle.Bold, wordWrap = true };
             label ??= new GUIStyle(GUI.skin.label) { fontSize = 18, wordWrap = true };
             button ??= new GUIStyle(GUI.skin.button) { fontSize = 17, fixedHeight = 39 };
-            float scale = Mathf.Max(0.1f, Mathf.Min(Screen.width / 1280f, Screen.height / 720f));
             Matrix4x4 previous = GUI.matrix;
-            GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
+            GUI.matrix = Matrix4x4.Scale(Vector3.one * GuiScale);
             GUI.enabled = !GameFlow.Loading && dialog == Dialog.None;
             GUI.Box(new Rect(24, 24, 510, 672), "");
             GUILayout.BeginArea(new Rect(44, 38, 470, 642));
@@ -144,9 +193,12 @@ namespace MadMachines
             GUILayout.EndArea();
             if (preview != null)
             {
-                GUILayout.BeginArea(new Rect(570, 620, 650, 75));
+                GUILayout.BeginArea(PreviewControlsArea);
                 rotate = GUILayout.Toggle(rotate, "Вращать машину");
-                if (GUILayout.Button("ПОВЕРНУТЬ", GUILayout.Width(160), GUILayout.Height(30))) preview.Rotate(Vector3.up, 30, Space.World);
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("ПОВЕРНУТЬ", GUILayout.Width(160), GUILayout.Height(30))) TurnPreview(30f);
+                GUILayout.Label("Зажмите ПКМ и двигайте мышь", label);
+                GUILayout.EndHorizontal();
                 GUILayout.EndArea();
             }
             GUI.enabled = !GameFlow.Loading;
