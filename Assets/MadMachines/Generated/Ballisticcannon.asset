@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Ballisticcannon
   m_EditorClassIdentifier: Assembly-CSharp::MadMachines.WeaponDefinition
   Label: "\u0411\u0430\u043B\u043B\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0430\u044F \u043F\u0443\u0448\u043A\u0430"
-  Speed: 38
+  Speed: 85
   Mass: 4
   Interval: 1.15
   Recoil: 2200
@@ -29,7 +29,7 @@ MonoBehaviour:
   appearance: 2
   ammunition:
   - label: Осколочно-фугасный
-    speed: 38
+    speed: 85
     mass: 4
     lifetime: 6
     size: 0.22
@@ -42,7 +42,7 @@ MonoBehaviour:
     color: {r: 0.8, g: 0.64, b: 0.34, a: 1}
     appearance: 2
   - label: Бронебойный
-    speed: 62
+    speed: 125
     mass: 4
     lifetime: 5
     size: 0.18

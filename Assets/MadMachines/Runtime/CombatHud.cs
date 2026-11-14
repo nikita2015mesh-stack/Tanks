@@ -35,6 +35,12 @@ namespace MadMachines
             public Vector3 Muzzle;
             public Vector3 ShotDirection;
             public Vector3 Velocity;
+            public bool ShowRangeMarks;
+            public float? SightDistance;
+            public bool SightUnreachable;
+            public int? ZeroDistance;
+            public float FlightTime;
+            public string RangefinderNotice;
         }
 
         internal void Draw(Frame frame, Action<float, float> drawMode, Action<float, float> drawWeaponOverlay = null)
@@ -114,21 +120,55 @@ namespace MadMachines
 
         private void DrawSight(Vector2 center, float scale, Frame frame)
         {
-            Color reticle = frame.Hit ? Gold : Color.white;
-            float length = frame.Aiming ? 37f : 14f;
-            Stroke(center + Vector2.left * length, center + Vector2.left * 6f, reticle);
-            Stroke(center + Vector2.right * 6f, center + Vector2.right * length, reticle);
+            Color reticle = frame.Hit || frame.SightUnreachable ? Gold : Color.white;
+            Stroke(center + Vector2.left * 14f, center + Vector2.left * 6f, reticle);
+            Stroke(center + Vector2.right * 6f, center + Vector2.right * 14f, reticle);
             Stroke(center + Vector2.up * 6f, center + Vector2.up * 14f, reticle);
             Stroke(center + Vector2.down * 6f, center + Vector2.down * 14f, reticle);
+            Fill(new Rect(center.x - 2.5f, center.y - 2.5f, 5f, 5f), Outline);
+            Fill(new Rect(center.x - 1.5f, center.y - 1.5f, 3f, 3f), reticle);
+            if (frame.Aiming)
+            {
+                const float edge = 31f;
+                const float corner = 9f;
+                for (int x = -1; x <= 1; x += 2)
+                {
+                    for (int y = -1; y <= 1; y += 2)
+                    {
+                        Vector2 point = center + new Vector2(x * edge, y * edge);
+                        Stroke(point, point - new Vector2(x * corner, 0f), reticle);
+                        Stroke(point, point - new Vector2(0f, y * corner), reticle);
+                    }
+                }
+            }
+            if (frame.SightUnreachable || (frame.Aiming && frame.SightDistance.HasValue && GameSettings.ShowBallistics))
+            {
+                Rect readout = new Rect(center.x - 107f, center.y + (frame.Aiming ? 43f : 20f), 214f, 24f);
+                Fill(readout, Panel);
+                string label = frame.SightUnreachable ? "Точка вне досягаемости" : $"Дальность  {frame.SightDistance:0} м";
+                GUI.Label(readout, label, centered);
+            }
             if (!frame.Aiming || frame.Camera == null) return;
 
-            Vector2 hullCenter = center + new Vector2(-140f, 45f);
+            Vector2 hullCenter = new Vector2(112f, center.y * 2f - 151f);
             Fill(new Rect(hullCenter.x - 33f, hullCenter.y - 35f, 66f, 66f), Panel);
             Stroke(hullCenter + Vector2.up * 25f, hullCenter + Vector2.up * 18f, Color.white);
             float relativeYaw = Mathf.DeltaAngle(frame.Camera.transform.eulerAngles.y, frame.Hull.eulerAngles.y);
             DrawHull(hullCenter, relativeYaw, 15f);
             GUI.Label(new Rect(hullCenter.x - 38f, hullCenter.y + 31f, 76f, 24f), "Корпус", centered);
-            if (GameSettings.ShowBallistics && frame.Ammunition.IsShell) DrawBallistics(center, scale, frame);
+            if (frame.ShowRangeMarks && GameSettings.ShowBallistics && frame.Ammunition.IsShell) DrawBallistics(center, scale, frame);
+            if (frame.ZeroDistance.HasValue)
+            {
+                Rect controls = new Rect(center.x - 157f, center.y * 2f - 95f, 314f, 75f);
+                Fill(controls, Panel);
+                string zero = $"Установлено  {frame.ZeroDistance} м";
+                if (frame.FlightTime > 0f) zero += $"  ·  Полёт ≈ {frame.FlightTime:0.0} с";
+                GUI.Label(new Rect(controls.x, controls.y + 4f, controls.width, 22f), zero, centered);
+                GUI.Label(new Rect(controls.x, controls.y + 26f, controls.width, 22f),
+                    frame.RangefinderNotice ?? "G — измерить и установить дальность", centered);
+                GUI.Label(new Rect(controls.x, controls.y + 48f, controls.width, 22f),
+                    "Колесо — 25 / 50 / 100 м  ·  Shift + колесо — 5 м", centered);
+            }
         }
 
         private void DrawBallistics(Vector2 center, float scale, Frame frame)
@@ -143,17 +183,14 @@ namespace MadMachines
                 if (point.x < 100f || point.x > 2f * center.x - 120f ||
                     point.y < 162f || point.y > 2f * center.y - 135f || (point - lastMark).sqrMagnitude < 18f * 18f)
                     continue;
-                bool closeToReticle = (point - center).sqrMagnitude < 24f * 24f;
+                bool closeToReticle = Mathf.Abs(point.x - center.x) < 44f && Mathf.Abs(point.y - center.y) < 36f;
                 if (!closeToReticle) Stroke(point + Vector2.left * 13f, point + Vector2.right * 13f, Gold);
-                float offset = closeToReticle ? 44f : 17f;
+                float offset = closeToReticle ? Mathf.Max(17f, center.x + 44f - point.x) : 17f;
                 Rect label = new Rect(point.x + offset, point.y - 11f, 62f, 23f);
                 Fill(label, Outline);
                 GUI.Label(label, $"{distance} м", centered);
                 lastMark = point;
             }
-            Rect speed = new Rect(center.x + 104f, center.y + 14f, 156f, 26f);
-            Fill(speed, Panel);
-            GUI.Label(speed, $"Нач. скорость  {frame.Ammunition.Speed:0} м/с", centered);
         }
 
         private void DrawMinimap(Rect bounds, Transform hull)
@@ -211,9 +248,10 @@ namespace MadMachines
         {
             Matrix4x4 previous = GUI.matrix;
             Vector2 delta = to - from;
-            GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, from);
-            Fill(new Rect(from.x - 1f, from.y - thickness * 0.5f - 1f, delta.magnitude + 2f, thickness + 2f), Outline);
-            Fill(new Rect(from.x, from.y - thickness * 0.5f, delta.magnitude, thickness), color);
+            Quaternion rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+            GUI.matrix = previous * Matrix4x4.TRS(new Vector3(from.x, from.y, 0f), rotation, Vector3.one);
+            Fill(new Rect(-1f, -thickness * 0.5f - 1f, delta.magnitude + 2f, thickness + 2f), Outline);
+            Fill(new Rect(0f, -thickness * 0.5f, delta.magnitude, thickness), color);
             GUI.matrix = previous;
         }
 

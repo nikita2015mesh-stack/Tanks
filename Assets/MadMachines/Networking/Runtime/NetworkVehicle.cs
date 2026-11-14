@@ -60,7 +60,7 @@ namespace MadMachines.Networking
         public string DisplayName => definition.DisplayName;
         public Vector3 MuzzlePosition => weapons.MuzzlePosition;
         internal Vector3 MountPosition => weapons.MountPosition;
-        internal Vector3 ShotDirection => weapons.AimDirection;
+        internal bool CanAim(Vector3 direction) => weapons.CanAim(direction);
         internal WeaponDefinition Weapon => weapons.Current;
         internal ProjectileDefinition Ammunition => projectilePrefab.Definition.GetProjectile();
         internal float Reload => Mathf.Clamp01((float)(reloadEndsAt.Value - NetworkManager.ServerTime.Time) / Weapon.Interval);

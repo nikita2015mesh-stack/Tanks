@@ -327,12 +327,25 @@ namespace MadMachines
 
         public int IndexOf(WeaponDefinition definition) => definitions == null ? -1 : Array.IndexOf(definitions, definition);
 
-        public void Aim(Vector3 worldDirection)
+        internal bool CanAim(Vector3 worldDirection)
+        {
+            float pitch = AimAnglesFor(worldDirection).y;
+            return pitch >= -45f && pitch <= 15f;
+        }
+
+        private Vector2 AimAnglesFor(Vector3 worldDirection)
         {
             Vector3 local = transform.InverseTransformDirection(worldDirection.normalized);
             float yaw = Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
             float pitch = -Mathf.Asin(Mathf.Clamp(local.y, -1f, 1f)) * Mathf.Rad2Deg;
-            ApplyAimAngles(new Vector2(yaw, Mathf.Clamp(pitch, -45f, 15f)));
+            return new Vector2(yaw, pitch);
+        }
+
+        public void Aim(Vector3 worldDirection)
+        {
+            Vector2 angles = AimAnglesFor(worldDirection);
+            angles.y = Mathf.Clamp(angles.y, -45f, 15f);
+            ApplyAimAngles(angles);
         }
 
         public void ApplyAimAngles(Vector2 angles)

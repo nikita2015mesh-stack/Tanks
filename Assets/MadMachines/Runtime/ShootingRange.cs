@@ -7,7 +7,7 @@ namespace MadMachines
     public sealed class ShootingRange : MonoBehaviour
     {
         private const int MinimumZeroDistance = 15;
-        private const int MaximumZeroDistance = 140;
+        private const int MaximumZeroDistance = 1000;
 
         [SerializeField] private Transform armorStands;
         private ArmorPlate[] plates;
@@ -57,6 +57,16 @@ namespace MadMachines
                 ZeroDistance = marks[i];
                 return;
             }
+        }
+
+        internal bool MeasureRange(Ray sight, Vector3 muzzle)
+        {
+            if (!gameObject.scene.GetPhysicsScene().Raycast(sight.origin, sight.direction, out RaycastHit hit,
+                1100f, 1, QueryTriggerInteraction.Ignore)) return false;
+            float distance = BallisticSight.HorizontalDistance(muzzle, hit.point);
+            if (distance < MinimumZeroDistance || distance > MaximumZeroDistance) return false;
+            ZeroDistance = Mathf.RoundToInt(distance);
+            return true;
         }
 
         private void FixedUpdate()

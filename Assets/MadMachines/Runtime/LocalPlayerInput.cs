@@ -13,6 +13,9 @@ namespace MadMachines
         private bool waitForFireRelease = true;
         internal ShootingRange Range { get; private set; }
         internal Camera SightCamera => view.ViewCamera;
+        internal bool RangeSolutionUnavailable { get; private set; }
+        internal float RangeFlightTime { get; private set; }
+        internal string RangefinderNotice { get; private set; }
         public bool MenuOverlayOpen { get; set; }
         public bool Paused { get; private set; }
         public bool Menu { get; private set; } = true;
@@ -50,6 +53,7 @@ namespace MadMachines
             rules.Begin(mode);
             vehicle.ParkingBrake = false;
             Range?.ResetStands();
+            RangefinderNotice = null;
             view.ResetView();
             SetCursor();
         }
@@ -118,8 +122,16 @@ namespace MadMachines
                 if (Range != null) UpdateRangeControls(keyboard, mouse);
             }
             Vector3 aim = view.AimDirection;
-            if (Range != null && AimMode && weapons.CurrentProjectile.IsShell)
-                aim = BallisticSight.ZeroDirection(aim, weapons.CurrentProjectile, Range.ZeroDistance);
+            RangeSolutionUnavailable = false;
+            if (Range != null && SightCamera != null && AimMode && weapons.CurrentProjectile.IsShell)
+            {
+                Ray sight = new Ray(SightCamera.transform.position, aim);
+                Vector3 target = BallisticSight.PointAtRange(sight, weapons.MuzzlePosition, Range.ZeroDistance);
+                bool solved = BallisticSight.TryAimAt(weapons.MuzzlePosition, target, vehicle.Body.linearVelocity,
+                    weapons.CurrentProjectile, out aim, out float flightTime);
+                RangeSolutionUnavailable = !solved || !weapons.CanAim(aim);
+                RangeFlightTime = RangeSolutionUnavailable ? 0f : flightTime;
+            }
             weapons.Aim(aim);
             if (!canPlay) return;
             float throttle = (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f);
@@ -149,8 +161,18 @@ namespace MadMachines
                 Range.ResetTargets();
                 waitForFireRelease = true;
             }
-            if (AimMode && weapons.CurrentProjectile.IsShell)
-                Range.ChangeZero(mouse.scroll.ReadValue().y, keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed);
+            if (AimMode && SightCamera != null && weapons.CurrentProjectile.IsShell)
+            {
+                float scroll = mouse.scroll.ReadValue().y;
+                Range.ChangeZero(scroll, keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed);
+                if (scroll != 0f) RangefinderNotice = null;
+                if (keyboard.gKey.wasPressedThisFrame)
+                {
+                    Ray sight = new Ray(SightCamera.transform.position, view.AimDirection);
+                    RangefinderNotice = Range.MeasureRange(sight, weapons.MuzzlePosition)
+                        ? "Дальность измерена и внесена в прицел" : "Нет показания дальномера";
+                }
+            }
             bool changeThickness = keyboard.tKey.wasPressedThisFrame;
             bool changeTilt = keyboard.yKey.wasPressedThisFrame;
             if ((!changeThickness && !changeTilt) || SightCamera == null) return;

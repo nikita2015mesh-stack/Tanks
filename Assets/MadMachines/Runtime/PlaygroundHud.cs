@@ -144,7 +144,12 @@ namespace MadMachines
                     vehicle.IsHeld ? "Автоудержание" : null,
                 Muzzle = weapons.MuzzlePosition,
                 ShotDirection = weapons.AimDirection,
-                Velocity = vehicle.Body.linearVelocity
+                Velocity = vehicle.Body.linearVelocity,
+                ShowRangeMarks = input.Range != null,
+                SightUnreachable = input.RangeSolutionUnavailable,
+                ZeroDistance = input.AimMode && weapons.CurrentProjectile.IsShell ? input.Range?.ZeroDistance : null,
+                FlightTime = input.RangeFlightTime,
+                RangefinderNotice = input.RangefinderNotice
             };
             combatHud.Draw(frame, DrawMode, DrawWeaponOverlay);
         }
@@ -313,12 +318,6 @@ namespace MadMachines
             }
             if (rules.Mode == ChallengeMode.Free)
                 GUI.Label(new Rect(width - 344, 166f, 324, 26), "F — сброс мишеней", small);
-            if (input.AimMode && weapons.CurrentProjectile.IsShell)
-            {
-                GUI.Box(new Rect(width * 0.5f - 146, height - 112, 292, 53), "");
-                GUI.Label(new Rect(width * 0.5f - 132, height - 108, 266, 47),
-                    $"Прицел {range.ZeroDistance} м   ·   колесо мыши\nShift + колесо — шаг 5 м", small);
-            }
         }
 
         private string FormatResult(float result)

@@ -24,6 +24,8 @@ namespace MadMachines.Networking
         private Vector3 chasePosition;
         private Collider[] hullColliders;
         private uint cameraRecoveryCount;
+        private float? sightDistance;
+        private bool sightUnreachable;
         private double resumeCommandsAt;
         private double fireUntil;
         private uint sequence;
@@ -89,6 +91,8 @@ namespace MadMachines.Networking
                 localState = current != null ? current.GetComponent<NetworkPhysicsState>() : null;
                 cameraRecoveryCount = localState != null ? localState.PresentedRecoveryCount : 0;
                 aimedVehicle = null;
+                sightDistance = null;
+                sightUnreachable = false;
                 fireUntil = 0;
                 movement = new VehicleCommand { Handbrake = true };
                 cameraComparison = CameraComparison.Smoothed;
@@ -247,19 +251,30 @@ namespace MadMachines.Networking
         private Vector3 AimDirection()
         {
             Vector3 direction = Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
-            Vector3 target = view.transform.position + direction * 150f;
+            float maxDistance = session.MatchGame ? session.ViewDistance : 150f;
+            Vector3 target = view.transform.position + direction * maxDistance;
             Rigidbody targetBody = null;
-            float nearest = 150f;
+            float nearest = maxDistance;
             foreach (RaycastHit hit in Physics.RaycastAll(view.transform.position, direction, nearest, NetworkVehicle.HitLayers, QueryTriggerInteraction.Ignore))
             {
-                if (hit.rigidbody == localVehicle.Body || hit.distance >= nearest) continue;
+                if (hit.rigidbody == localVehicle.Body || hit.distance >= nearest ||
+                    (hit.rigidbody != null && hit.rigidbody.TryGetComponent<NetworkBallisticProjectile>(out _))) continue;
                 target = hit.point;
                 nearest = hit.distance;
                 targetBody = hit.rigidbody;
             }
             aimedVehicle = session.HasTeams && !session.MatchGame && targetBody != null ? targetBody.GetComponent<NetworkVehicle>() : null;
             Vector3 aim = target - localVehicle.MuzzlePosition;
-            return aim.sqrMagnitude > 0.001f ? aim.normalized : direction;
+            sightDistance = null;
+            sightUnreachable = false;
+            if (!session.MatchGame || nearest >= maxDistance)
+                return aim.sqrMagnitude > 0.001f ? aim.normalized : direction;
+
+            sightDistance = aim.magnitude;
+            bool reachable = BallisticSight.TryAimAt(localVehicle.MuzzlePosition, target,
+                localVehicle.PresentedVelocity, localVehicle.Ammunition, out Vector3 compensated, out _);
+            sightUnreachable = !reachable || !localVehicle.CanAim(compensated);
+            return compensated.sqrMagnitude > 0.001f ? compensated : direction;
         }
 
         private void MoveCamera(bool snap)
@@ -271,7 +286,7 @@ namespace MadMachines.Networking
                 return;
             }
             Vector3 pivot = localVehicle.transform.position + Vector3.up * 1.6f;
-            Vector3 offset = rotation * new Vector3(0f, 0f, -9f);
+            Vector3 offset = rotation * new Vector3(0f, session.MatchGame ? 0.9f : 0f, -9f);
             float distance = offset.magnitude;
             foreach (RaycastHit hit in Physics.SphereCastAll(pivot, 0.25f, offset.normalized, distance, NetworkVehicle.HitLayers, QueryTriggerInteraction.Ignore))
             {
@@ -400,9 +415,8 @@ namespace MadMachines.Networking
                 Weapon = localVehicle.Weapon.Label,
                 Ammunition = localVehicle.Ammunition,
                 Reload = localVehicle.Reload,
-                Muzzle = localVehicle.MuzzlePosition,
-                ShotDirection = localVehicle.ShotDirection,
-                Velocity = localVehicle.PresentedVelocity
+                SightDistance = sightDistance,
+                SightUnreachable = sightUnreachable
             };
             combatHud.Draw(frame, session.MatchGame ? DrawMatchStatus : null, DrawAimedTeam);
         }

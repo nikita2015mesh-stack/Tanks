@@ -88,7 +88,7 @@ namespace MadMachines
             sensitivity = GUILayout.HorizontalSlider(sensitivity, 0.25f, 2.5f);
             invert = GUILayout.Toggle(invert, "Инверсия мыши по вертикали");
             minimap = GUILayout.Toggle(minimap, "Миникарта");
-            ballistics = GUILayout.Toggle(ballistics, "Баллистическая разметка и скорость снаряда");
+            ballistics = GUILayout.Toggle(ballistics, "Дальность в бою и отметки стрельбища");
             GUILayout.Space(12);
             GUILayout.Label("WASD — движение · Пробел — ручник\nМышь — наведение · ЛКМ — огонь\n1/2/3 — оружие (одиночная игра)\nC — вид камеры\nR — восстановление (в Deathmatch почти с места)\nEsc — игровое меню");
             if (GUILayout.Button("ПРИМЕНИТЬ", GUILayout.Height(40)))
