@@ -17,7 +17,9 @@ namespace MadMachines
         private float aimBlend;
         private float yaw;
         private float pitch = 12f;
-        private float shake;
+        private float recoilStart = -1f;
+        private float recoilDuration;
+        private float recoilDistance;
         public bool AimMode { get; private set; }
         internal Camera ViewCamera => viewCamera;
         public Vector3 AimDirection => Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
@@ -50,13 +52,17 @@ namespace MadMachines
         }
         public void Shake()
         {
-            shake = 0.22f;
+            ProjectileDefinition ammunition = weapons.CurrentProjectile;
+            recoilStart = Time.time;
+            recoilDuration = ammunition.IsShell ? 0.24f : ammunition.TimedBounce ? 0.28f : 0.07f;
+            recoilDistance = ammunition.IsShell ? 0.18f : ammunition.TimedBounce ? 0.23f : 0.025f;
         }
 
         public void ResetView()
         {
             yaw = target.eulerAngles.y;
             pitch = 12f;
+            recoilStart = -1f;
         }
 
         private void LateUpdate()
@@ -66,9 +72,6 @@ namespace MadMachines
             Vector3 offset = Quaternion.Euler(pitch, yaw, 0f) * new Vector3(0f, 1f, -9f);
             if (Physics.SphereCast(pivot, 0.3f, offset.normalized, out RaycastHit hit, offset.magnitude, 1, QueryTriggerInteraction.Ignore)) offset = offset.normalized * Mathf.Max(0.6f, hit.distance - 0.2f);
             chasePosition = Vector3.Lerp(chasePosition, pivot + offset, 1f - Mathf.Exp(-12f * Time.deltaTime));
-            shake = Mathf.MoveTowards(shake, 0f, Time.deltaTime);
-            if (shake > 0f) chasePosition += Random.insideUnitSphere * shake * 0.2f;
-
             Vector3 position = chasePosition;
             if (AimMode || aimBlend > 0f)
             {
@@ -80,6 +83,12 @@ namespace MadMachines
                     Vector3 aimPosition = weapons.MuzzlePosition + weapons.AimDirection * 0.2f;
                     position = ClearHull(Vector3.Lerp(chasePosition, aimPosition, blend));
                 }
+            }
+            if (recoilStart >= 0f)
+            {
+                float age = Mathf.Clamp01((Time.time - recoilStart) / recoilDuration);
+                float recoil = Mathf.Sin(Mathf.PI * age) * (1f - age);
+                position += (Vector3.up * 0.64f - AimDirection * 0.36f) * (recoil * recoilDistance);
             }
             transform.position = position;
             transform.rotation = Quaternion.LookRotation(AimDirection);

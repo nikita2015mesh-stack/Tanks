@@ -16,10 +16,12 @@ namespace MadMachines
         private VehiclePhysics player;
         private string lastImpact;
         private float impactExpires;
+        private float recoveryExpires;
 
         internal int ZeroDistance { get; private set; } = BallisticSight.Distances[0];
         internal bool ShowPrediction { get; private set; }
         internal string LastImpact => Time.time < impactExpires ? lastImpact : null;
+        internal bool RecoveredAtBoundary => Time.time < recoveryExpires;
 
         internal void Bind(VehiclePhysics vehicle)
         {
@@ -59,6 +61,18 @@ namespace MadMachines
         }
 
         internal void TogglePrediction() => ShowPrediction = !ShowPrediction;
+
+        private void FixedUpdate()
+        {
+            if (player == null || rules.Phase == SessionPhase.Countdown) return;
+            Vector3 position = transform.InverseTransformPoint(player.Body.position);
+            // Keep the recovery line inside the outer edges of the berm meshes.
+            if (Mathf.Abs(position.x) < 122f && position.z > -67f && position.z < 1077f && position.y > -3f)
+                return;
+
+            rules.Recover();
+            recoveryExpires = Time.time + 3f;
+        }
 
         internal ArmorPlate ViewedPlate(Camera view)
         {

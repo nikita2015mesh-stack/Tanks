@@ -10,14 +10,15 @@ namespace MadMachines
         private static Mesh bullet;
         private static Mesh shell;
         private static Mesh penetrator;
+        private static Mesh grenade;
         private static Material copper;
         private static Material steel;
         private static Material bronze;
+        private static Material grenadeCase;
 
         internal static Transform Attach(GameObject shot, ProjectileAppearance appearance)
         {
-            if (appearance == ProjectileAppearance.Sphere) return null;
-            shot.GetComponent<MeshRenderer>().enabled = false;
+            if (shot.TryGetComponent(out MeshRenderer original)) original.enabled = false;
             if (Application.isBatchMode) return null;
 
             GameObject model = new GameObject("Projectile body") { layer = shot.layer };
@@ -25,14 +26,33 @@ namespace MadMachines
             MeshFilter filter = model.AddComponent<MeshFilter>();
             MeshRenderer renderer = model.AddComponent<MeshRenderer>();
             renderer.shadowCastingMode = ShadowCastingMode.Off;
-            if (appearance == ProjectileAppearance.Bullet)
+            if (appearance == ProjectileAppearance.Grenade)
+            {
+                if (grenade == null)
+                {
+                    grenade = Lathe("Heavy grenade", new[]
+                    {
+                        new Vector2(-0.56f, 0f), new Vector2(-0.56f, 0.20f), new Vector2(-0.49f, 0.28f),
+                        new Vector2(-0.37f, 0.32f), new Vector2(0.19f, 0.32f), new Vector2(0.36f, 0.26f),
+                        new Vector2(0.43f, 0.13f), new Vector2(0.49f, 0.13f), new Vector2(0.49f, 0f)
+                    }, 2, 3);
+                    grenadeCase = Metal("Grenade case", new Color(0.25f, 0.28f, 0.19f), 0.27f);
+                    if (bronze == null) bronze = Metal("Shell bronze", new Color(0.58f, 0.36f, 0.18f), 0.48f);
+                }
+                model.transform.localScale = Vector3.one * 0.48f;
+                filter.sharedMesh = grenade;
+                renderer.sharedMaterials = new[] { grenadeCase, bronze };
+            }
+            else if (appearance == ProjectileAppearance.Bullet)
             {
                 if (bullet == null) CreateBullet();
+                model.transform.localScale = Vector3.one * 0.48f;
                 filter.sharedMesh = bullet;
                 renderer.sharedMaterial = copper;
             }
             else if (appearance == ProjectileAppearance.Penetrator)
             {
+                model.transform.localScale = Vector3.one * 0.39f;
                 if (penetrator == null)
                     penetrator = Lathe("Penetrator", new[]
                     {
@@ -47,6 +67,7 @@ namespace MadMachines
             else
             {
                 if (shell == null) CreateShell();
+                model.transform.localScale = Vector3.one * 0.34f;
                 filter.sharedMesh = shell;
                 renderer.sharedMaterials = new[] { steel, bronze };
             }
@@ -82,7 +103,7 @@ namespace MadMachines
                 new Vector2(0.49f, 0f)
             }, 3, 6);
             if (steel == null) steel = Metal("Shell steel", new Color(0.37f, 0.40f, 0.43f), 0.38f);
-            bronze = Metal("Shell bronze", new Color(0.58f, 0.36f, 0.18f), 0.48f);
+            if (bronze == null) bronze = Metal("Shell bronze", new Color(0.58f, 0.36f, 0.18f), 0.48f);
         }
 
         private static Material Metal(string name, Color color, float smoothness)

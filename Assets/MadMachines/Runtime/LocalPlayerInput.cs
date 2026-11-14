@@ -22,6 +22,7 @@ namespace MadMachines
         {
             vehicle = car; weapons = gun; view = camera; rules = session;
             Range = range;
+            vehicle.AutoHoldEnabled = range != null;
         }
 
         private System.Collections.IEnumerator Start()
@@ -47,6 +48,7 @@ namespace MadMachines
             waitForFireRelease = true;
             Paused = Menu = false;
             rules.Begin(mode);
+            vehicle.ParkingBrake = false;
             Range?.ResetStands();
             view.ResetView();
             SetCursor();
@@ -116,15 +118,22 @@ namespace MadMachines
                 aim = BallisticSight.ZeroDirection(aim, weapons.CurrentProjectile, Range.ZeroDistance);
             weapons.Aim(aim);
             if (!canPlay) return;
+            float throttle = (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f);
+            if (keyboard.pKey.wasPressedThisFrame) vehicle.ParkingBrake = !vehicle.ParkingBrake;
+            if (throttle != 0f) vehicle.ParkingBrake = false;
             vehicle.Submit(new VehicleCommand
             {
-                Throttle = (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f),
+                Throttle = throttle,
                 Steering = (keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f),
-                Handbrake = keyboard.spaceKey.isPressed
+                Handbrake = keyboard.spaceKey.isPressed,
+                BrakeBeforeReversing = true
             });
             if (!mouse.leftButton.isPressed) waitForFireRelease = false;
             if (!waitForFireRelease && mouse.leftButton.isPressed) weapons.RequestFire();
-            if (keyboard.rKey.wasPressedThisFrame || vehicle.transform.position.y < -15f) rules.Recover();
+            if (keyboard.rKey.wasPressedThisFrame || vehicle.transform.position.y < -15f)
+            {
+                rules.Recover();
+            }
         }
 
         private void UpdateRangeControls(Keyboard keyboard, Mouse mouse)

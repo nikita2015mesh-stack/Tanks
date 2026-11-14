@@ -11,6 +11,7 @@ namespace MadMachines
         private const int TrackLimit = 2048;
         private const float TrackLifetime = 3.2f;
         private const int VoiceLimit = 16;
+        private const int FlashLimit = 8;
         private static readonly Dictionary<Scene, DrivingEffects> Instances = new Dictionary<Scene, DrivingEffects>();
         private static AudioClip engineClip;
         private Mesh trackMesh;
@@ -18,7 +19,16 @@ namespace MadMachines
         private Material particleMaterial;
         private Material tracerMaterial;
         private Material wakeMaterial;
+        private Material flashMaterial;
+        private Material fireMaterial;
         private ParticleSystem particles;
+        private ParticleSystem fireParticles;
+        private readonly MuzzleFlash[] flashes = new MuzzleFlash[FlashLimit];
+        private int nextFlash;
+        private Light effectLight;
+        private float lightBirth;
+        private float lightDuration;
+        private float lightPeak;
         private readonly Queue<TrackSegment> tracks = new Queue<TrackSegment>(TrackLimit);
         private readonly List<Vector3> vertices = new List<Vector3>(TrackLimit * 4);
         private readonly List<Color32> colors = new List<Color32>(TrackLimit * 4);
@@ -41,6 +51,13 @@ namespace MadMachines
             public float To;
             public Color32 Color;
             public float Birth;
+        }
+
+        private struct MuzzleFlash
+        {
+            public LineRenderer Line;
+            public float Birth;
+            public float Duration;
         }
 
         internal static AudioClip EngineClip => engineClip != null ? engineClip : engineClip = LoadClip("Engine");
@@ -97,41 +114,59 @@ namespace MadMachines
         internal void Muzzle(ProjectileDefinition ammunition, Vector3 point, Vector3 direction)
         {
             bool light = ammunition.BlastRadius <= 0f && !ammunition.IsShell;
+            bool grenade = ammunition.TimedBounce;
             Play(light ? Clips.Machinegun : ammunition.TimedBounce ? Clips.Grenade : Clips.Cannon,
                 point, light ? 0.52f : 0.88f, light ? 65f : 150f);
-            Emit(point + direction * 0.22f, direction * 2.5f, light ? Vary(0.27f, 0.46f) : 1.05f, light ? 0.045f : 0.075f,
-                new Color(1f, 0.91f, 0.63f, 1f));
+            if (!grenade)
+                FlashMuzzle(point, direction, light ? Vary(0.5f, 0.85f) : Vary(1.5f, 2.1f),
+                    light ? 0.25f : 0.65f, light ? 0.040f : 0.061f);
+            if (!light && !grenade) PulseLight(point + direction * 0.45f, 7f, 5.5f, 0.08f);
 
-            if (ammunition.TimedBounce)
-            {
-                for (int i = 0; i < 6; i++)
-                {
-                    bool spark = i == 0;
-                    Vector3 velocity = direction * Vary(1.5f, 4f) + Drift();
-                    Emit(point + direction * 0.12f, spark ? velocity * 1.8f : velocity,
-                        Vary(0.15f, 0.34f) * 1.6f, spark ? 0.10f : Vary(0.16f, 0.45f),
-                        spark ? new Color(1f, 0.68f, 0.22f, 0.95f) : new Color(0.63f, 0.58f, 0.52f, 0.48f));
-                }
-                return;
-            }
-
-            int smokeCount = light ? 1 : 9;
+            int smokeCount = light ? 2 : 14;
             for (int i = 0; i < smokeCount; i++)
             {
-                Vector3 velocity = direction * Vary(0.7f, 3.2f) + Vector3.up * Vary(0.35f, 1.0f) + Drift() * 0.65f;
-                float brightness = Vary(0.43f, 0.68f);
-                Emit(point + direction * Vary(0.14f, 0.35f), velocity,
-                    light ? Vary(0.14f, 0.29f) : Vary(0.34f, 0.76f), light ? Vary(0.15f, 0.32f) : Vary(0.45f, 1.05f),
-                    new Color(brightness, brightness * 0.98f, brightness * 0.94f, light ? 0.27f : 0.5f));
+                float speed = light ? Vary(1.4f, 3.1f) : Vary(0.55f, 4.1f);
+                Vector3 velocity = direction * speed + Vector3.up * Vary(0.25f, 0.8f) + Drift() * (light ? 0.29f : 0.86f);
+                float shade = Vary(0.25f, 0.61f);
+                Emit(point + direction * Vary(0.06f, 0.41f), velocity,
+                    light ? Vary(0.15f, 0.33f) : Vary(0.38f, 1.03f), light ? Vary(0.16f, 0.39f) : Vary(0.62f, 1.44f),
+                    new Color(shade, shade * 0.98f, shade * 0.94f, light ? 0.24f : 0.48f));
             }
 
             if (variation.NextDouble() < (light ? 0.12 : 0.3))
             {
                 int sparkCount = light ? 1 : 3;
                 for (int i = 0; i < sparkCount; i++)
-                    Emit(point + direction * 0.18f, direction * Vary(5f, 10f) + Drift() * 2.5f,
-                        Vary(0.045f, 0.105f), Vary(0.08f, 0.16f), new Color(1f, 0.68f, 0.22f, 0.95f));
+                    EmitFire(point + direction * 0.18f, direction * Vary(6f, 12f) + Drift() * 2.5f,
+                        Vary(0.035f, 0.08f), Vary(0.08f, 0.16f), new Color(1f, 0.54f, 0.17f, 0.95f));
             }
+        }
+
+        private void FlashMuzzle(Vector3 point, Vector3 direction, float length, float width, float duration)
+        {
+            ref MuzzleFlash flash = ref flashes[nextFlash];
+            nextFlash = (nextFlash + 1) % flashes.Length;
+            if (flash.Line == null)
+            {
+                GameObject effect = new GameObject("Muzzle flash") { layer = gameObject.layer };
+                effect.transform.SetParent(transform, false);
+                LineRenderer line = effect.AddComponent<LineRenderer>();
+                if (flashMaterial == null) flashMaterial = CreateMaterial("Muzzle flame", 4f, 3003, additive: true);
+                line.sharedMaterial = flashMaterial;
+                line.shadowCastingMode = ShadowCastingMode.Off;
+                line.receiveShadows = false;
+                line.useWorldSpace = true;
+                line.positionCount = 2;
+                line.textureMode = LineTextureMode.Stretch;
+                flash.Line = line;
+            }
+            flash.Birth = Time.time;
+            flash.Duration = duration;
+            flash.Line.widthMultiplier = width;
+            flash.Line.startColor = flash.Line.endColor = new Color(1f, 0.49f, 0.12f, 1f);
+            flash.Line.SetPosition(0, point + direction * length);
+            flash.Line.SetPosition(1, point);
+            flash.Line.enabled = true;
         }
 
         internal void Impact(ProjectileDefinition ammunition, Vector3 point)
@@ -139,29 +174,96 @@ namespace MadMachines
             bool blast = ammunition.BlastRadius > 0f;
             Play(blast ? Clips.Explosion : Clips.Hit, point, blast ? 0.9f : 0.48f, blast ? 170f : 60f);
             float scale = blast ? Mathf.Sqrt(ammunition.BlastRadius) : 0.55f;
-            if (blast)
-                Emit(point + Vector3.up * 0.2f, Vector3.up * 1.25f, scale * 1.15f, 0.13f,
-                    new Color(1f, 0.83f, 0.42f, 0.98f));
             Color dustColor = new Color(0.61f, 0.49f, 0.37f, 0.62f);
-            bool looseImpact = false;
-            if (gameObject.scene.GetPhysicsScene().Raycast(point + Vector3.up * 0.4f, Vector3.down, out RaycastHit ground,
-                blast ? 3.5f : 0.8f, 1, QueryTriggerInteraction.Ignore) && ground.collider.TryGetComponent(out LooseGround loose))
+            bool nearSurface = gameObject.scene.GetPhysicsScene().Raycast(point + Vector3.up * 0.4f,
+                Vector3.down, out RaycastHit ground, blast ? 3.5f : 0.8f, 1, QueryTriggerInteraction.Ignore);
+            LooseGround looseGround = nearSurface ? ground.collider.GetComponent<LooseGround>() : null;
+            bool looseImpact = looseGround != null;
+            if (looseImpact)
             {
-                looseImpact = true;
-                dustColor = WithAlpha(loose.Dust, 0.7f);
+                dustColor = WithAlpha(looseGround.Dust, 0.7f);
             }
 
-            bool bulletSparks = !blast && !looseImpact && variation.NextDouble() < 0.25;
-            int sparks = blast ? 4 : bulletSparks ? 2 : 0;
-            for (int i = 0; i < (blast ? 18 : 4); i++)
+            if (blast)
+            {
+                Blast(point, scale, dustColor, nearSurface ? ground.point : (Vector3?)null, looseImpact);
+                return;
+            }
+
+            for (int i = 0; i < 4; i++)
             {
                 Vector3 spread = Drift();
                 spread.y = Mathf.Abs(spread.y);
-                bool spark = i < sparks;
                 Emit(point + spread * (0.08f * scale), (spread * 2.5f + Vector3.up * 0.45f) * scale,
-                    Vary(0.27f, 0.7f) * scale, spark ? 0.16f : Vary(0.28f, 0.95f),
-                    spark ? new Color(1f, 0.59f, 0.22f, 0.95f) : dustColor);
+                    Vary(0.27f, 0.7f) * scale, Vary(0.22f, 0.52f), dustColor);
             }
+            if (!looseImpact && variation.NextDouble() < 0.25)
+                EmitFire(point, (Vector3.up + Drift()) * 3f, 0.085f, 0.13f, new Color(1f, 0.59f, 0.22f, 0.95f));
+        }
+
+        private void Blast(Vector3 point, float scale, Color dustColor, Vector3? surfacePoint, bool looseImpact)
+        {
+            PulseLight(point + Vector3.up * (scale * 0.35f), scale * 5f, scale * 6f, 0.16f);
+            for (int i = 0; i < 9; i++)
+            {
+                Vector3 spread = Drift();
+                spread.y = Mathf.Abs(spread.y);
+                EmitFire(point + spread * (scale * 0.33f) + Vector3.up * 0.12f,
+                    (spread * 2.1f + Vector3.up * 0.7f) * scale, Vary(0.31f, 0.89f) * scale,
+                    Vary(0.08f, 0.23f), new Color(1f, Vary(0.37f, 0.76f), 0.11f, Vary(0.64f, 1f)));
+            }
+
+            for (int i = 0; i < 14; i++)
+            {
+                Vector3 spread = Drift();
+                spread.y = Vary(0.30f, 1.25f);
+                float shade = Vary(0.18f, 0.34f);
+                Emit(point + spread * (scale * 0.21f), spread * scale * Vary(0.47f, 1.54f),
+                    Vary(0.48f, 1.03f) * scale, Vary(0.83f, 1.9f), new Color(shade, shade * 0.93f, shade * 0.88f, 0.67f));
+            }
+
+            if (surfacePoint.HasValue)
+            {
+                for (int i = 0; i < (looseImpact ? 18 : 8); i++)
+                {
+                    float angle = Vary(0f, 2f * Mathf.PI);
+                    Vector3 outward = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+                    float speed = Vary(1.3f, 3.7f) * scale;
+                    Emit(surfacePoint.Value + outward * (scale * Vary(0.1f, 0.54f)) + Vector3.up * 0.17f,
+                        outward * speed + Vector3.up * Vary(0.11f, 0.8f), Vary(0.34f, 0.91f) * scale,
+                        Vary(0.47f, 1.18f), dustColor);
+                }
+            }
+
+            for (int i = 0; i < 12; i++)
+            {
+                Vector3 spread = Drift();
+                spread.y = Mathf.Abs(spread.y) + 0.12f;
+                EmitFire(point + Vector3.up * 0.25f, spread * Vary(3f, 8f) * scale, Vary(0.03f, 0.085f) * scale,
+                    Vary(0.13f, 0.38f), new Color(1f, 0.51f, 0.11f, 0.82f));
+            }
+        }
+
+        private void PulseLight(Vector3 point, float range, float intensity, float duration)
+        {
+            if (effectLight != null && effectLight.enabled && lightPeak > intensity && Time.time < lightBirth + lightDuration)
+                return;
+            if (effectLight == null)
+            {
+                GameObject lightObject = new GameObject("Shot light") { layer = gameObject.layer };
+                lightObject.transform.SetParent(transform, false);
+                effectLight = lightObject.AddComponent<Light>();
+                effectLight.type = LightType.Point;
+                effectLight.color = new Color(1f, 0.57f, 0.27f);
+                effectLight.shadows = LightShadows.None;
+            }
+            effectLight.transform.position = point;
+            effectLight.range = range;
+            effectLight.intensity = intensity;
+            effectLight.enabled = true;
+            lightBirth = Time.time;
+            lightDuration = duration;
+            lightPeak = intensity;
         }
 
         internal void PlateImpact(Vector3 point, Vector3 normal, ArmorImpact result)
@@ -173,7 +275,7 @@ namespace MadMachines
             for (int i = 0; i < (penetrated || reflected ? 12 : 6); i++)
             {
                 Vector3 direction = (penetrated ? -normal : normal) * Vary(2f, 8f) + Drift() * 3f;
-                Emit(point + normal * 0.06f, direction, Vary(0.075f, 0.19f), Vary(0.11f, 0.29f), spark);
+                EmitFire(point + normal * 0.06f, direction, Vary(0.042f, 0.11f), Vary(0.11f, 0.29f), spark);
             }
         }
 
@@ -186,7 +288,7 @@ namespace MadMachines
         {
             get
             {
-                if (tracerMaterial == null) tracerMaterial = CreateMaterial("Projectile tracer", 2f, 3000);
+                if (tracerMaterial == null) tracerMaterial = CreateMaterial("Projectile tracer", 2f, 3003, additive: true);
                 return tracerMaterial;
             }
         }
@@ -212,7 +314,26 @@ namespace MadMachines
 
         private void Emit(Vector3 point, Vector3 velocity, float size, float lifetime, Color color)
         {
-            if (particles == null) CreateParticles();
+            if (particles == null)
+            {
+                particleMaterial = CreateMaterial("Dust and smoke", 1f, 3001);
+                particles = CreateParticles("Dust and smoke", particleMaterial, 750, false);
+            }
+            EmitParticle(particles, point, velocity, size, lifetime, color);
+        }
+
+        private void EmitFire(Vector3 point, Vector3 velocity, float size, float lifetime, Color color)
+        {
+            if (fireParticles == null)
+            {
+                fireMaterial = CreateMaterial("Flame and sparks", 5f, 3002, additive: true);
+                fireParticles = CreateParticles("Flame and sparks", fireMaterial, 320, true);
+            }
+            EmitParticle(fireParticles, point, velocity, size, lifetime, color);
+        }
+
+        private void EmitParticle(ParticleSystem system, Vector3 point, Vector3 velocity, float size, float lifetime, Color color)
+        {
             ParticleSystem.EmitParams emission = new ParticleSystem.EmitParams
             {
                 position = point,
@@ -222,30 +343,30 @@ namespace MadMachines
                 startColor = color,
                 rotation = Vary(0f, 360f)
             };
-            particles.Emit(emission, 1);
+            system.Emit(emission, 1);
         }
 
-        private void CreateParticles()
+        private ParticleSystem CreateParticles(string name, Material material, int limit, bool hot)
         {
-            GameObject emitter = new GameObject("Dust and sparks") { layer = gameObject.layer };
+            GameObject emitter = new GameObject(name) { layer = gameObject.layer };
             emitter.transform.SetParent(transform, false);
-            particles = emitter.AddComponent<ParticleSystem>();
-            particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            ParticleSystem.MainModule main = particles.main;
+            ParticleSystem system = emitter.AddComponent<ParticleSystem>();
+            system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            ParticleSystem.MainModule main = system.main;
             main.simulationSpace = ParticleSystemSimulationSpace.World;
             main.playOnAwake = false;
-            main.maxParticles = 520;
+            main.maxParticles = limit;
             main.cullingMode = ParticleSystemCullingMode.AlwaysSimulate;
-            ParticleSystem.EmissionModule emission = particles.emission;
+            ParticleSystem.EmissionModule emission = system.emission;
             emission.enabled = false;
-            ParticleSystem.SizeOverLifetimeModule size = particles.sizeOverLifetime;
+            ParticleSystem.SizeOverLifetimeModule size = system.sizeOverLifetime;
             size.enabled = true;
-            size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.45f, 1f, 1.6f));
-            ParticleSystem.ColorOverLifetimeModule fade = particles.colorOverLifetime;
+            size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, hot ? 1f : 0.45f, 1f, hot ? 1.35f : 1.8f));
+            ParticleSystem.ColorOverLifetimeModule fade = system.colorOverLifetime;
             fade.enabled = true;
             Gradient gradient = new Gradient();
             gradient.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-                new[] { new GradientAlphaKey(0.15f, 0f), new GradientAlphaKey(1f, 0.14f), new GradientAlphaKey(0f, 1f) });
+                new[] { new GradientAlphaKey(hot ? 1f : 0.15f, 0f), new GradientAlphaKey(1f, 0.14f), new GradientAlphaKey(0f, 1f) });
             fade.color = gradient;
             ParticleSystemRenderer renderer = emitter.GetComponent<ParticleSystemRenderer>();
             renderer.sortMode = ParticleSystemSortMode.Distance;
@@ -255,15 +376,29 @@ namespace MadMachines
             {
                 ParticleSystemVertexStream.Position, ParticleSystemVertexStream.Color, ParticleSystemVertexStream.UV
             });
-            particleMaterial = CreateMaterial("Dust", 1f, 3001);
-            renderer.sharedMaterial = particleMaterial;
-            particles.Play();
+            renderer.sharedMaterial = material;
+            system.Play();
+            return system;
         }
 
         private void LateUpdate()
         {
             UpdateAudioPause();
             float now = Time.time;
+            for (int i = 0; i < flashes.Length; i++)
+            {
+                ref MuzzleFlash flash = ref flashes[i];
+                if (flash.Line == null || !flash.Line.enabled) continue;
+                float remaining = 1f - (now - flash.Birth) / flash.Duration;
+                if (remaining <= 0f) flash.Line.enabled = false;
+                else flash.Line.startColor = flash.Line.endColor = new Color(1f, 0.49f, 0.12f, remaining * remaining);
+            }
+            if (effectLight != null && effectLight.enabled)
+            {
+                float remaining = 1f - (now - lightBirth) / lightDuration;
+                effectLight.enabled = remaining > 0f;
+                effectLight.intensity = lightPeak * Mathf.Pow(Mathf.Max(0f, remaining), 2f);
+            }
             while (tracks.Count > 0 && now - tracks.Peek().Birth >= TrackLifetime)
             {
                 tracks.Dequeue();
@@ -338,10 +473,11 @@ namespace MadMachines
             ages.Add(new Vector2(track.Birth, 0f));
         }
 
-        private static Material CreateMaterial(string name, float mode, int queue)
+        private static Material CreateMaterial(string name, float mode, int queue, bool additive = false)
         {
             Material material = new Material(Resources.Load<Shader>("DrivingFeedback")) { name = name, renderQueue = queue };
             material.SetFloat("_Mode", mode);
+            material.SetFloat("_DstBlend", (float)(additive ? BlendMode.One : BlendMode.OneMinusSrcAlpha));
             return material;
         }
 
@@ -387,6 +523,8 @@ namespace MadMachines
             Destroy(particleMaterial);
             Destroy(tracerMaterial);
             Destroy(wakeMaterial);
+            Destroy(flashMaterial);
+            Destroy(fireMaterial);
         }
     }
 }

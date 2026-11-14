@@ -37,7 +37,6 @@ namespace MadMachines
             if (Destroyed || attacker == null) return;
             health -= damage;
             if (rules != null) rules.RegisterHit(attacker, shotId);
-            PlaygroundEffects.Flash(transform.position, Color.white, 1.5f, 0.12f);
             if (Destroyed)
             {
                 if (rules != null) rules.TargetDestroyed(this, attacker);

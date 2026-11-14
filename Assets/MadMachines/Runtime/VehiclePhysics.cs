@@ -8,6 +8,7 @@ namespace MadMachines
         public float Throttle;
         public float Steering;
         public bool Handbrake;
+        internal bool BrakeBeforeReversing;
     }
 
     public enum VehicleDrive
@@ -20,6 +21,9 @@ namespace MadMachines
     {
         private const float MinimumGroundAlignment = 0.2f;
         private const float AxleTolerance = 0.1f;
+        private const float ParkingSpeed = 0.55f;
+        private const float ServiceBrakeAcceleration = 8f;
+        private const RigidbodyConstraints ParkingConstraints = RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ;
         private static readonly Vector3 DefaultCenterOfMass = new Vector3(0f, -0.35f, 0f);
 
         [SerializeField] private float engineForce = 10500f;
@@ -40,7 +44,12 @@ namespace MadMachines
         private VehicleWheelState[] wheelStates;
         private VehicleWheelState[] previousStates;
         private VehicleCommand command;
+        private RigidbodyConstraints originalConstraints;
+        private bool parkingLocked;
 
+        internal bool ParkingBrake { get; set; }
+        internal bool AutoHoldEnabled { get; set; }
+        internal bool IsHeld => parkingLocked;
         public bool Authority { get; set; } = true;
         public VehicleDrive DriveMode { get => driveMode; set => driveMode = value; }
         public Rigidbody Body => body != null ? body : body = GetComponent<Rigidbody>();
@@ -148,8 +157,54 @@ namespace MadMachines
 
         private void FixedUpdate()
         {
-            if (Authority) Step(command, gameObject.scene.GetPhysicsScene(), Time.fixedDeltaTime);
+            if (!Authority)
+            {
+                SetParkingLock(false);
+                return;
+            }
+            Step(command, gameObject.scene.GetPhysicsScene(), Time.fixedDeltaTime);
+            ApplyParkingBrake();
         }
+
+        private void ApplyParkingBrake()
+        {
+            Rigidbody rb = Body;
+            if ((!ParkingBrake && !AutoHoldEnabled) || command.Throttle != 0f ||
+                rb.isKinematic || GroundedWheels < Mathf.Min(3, WheelCount))
+            {
+                SetParkingLock(false);
+                return;
+            }
+
+            Vector3 drift = Vector3.ProjectOnPlane(rb.linearVelocity, Vector3.up);
+            if (parkingLocked || drift.sqrMagnitude <= ParkingSpeed * ParkingSpeed)
+            {
+                SetParkingLock(true);
+            }
+            else if (ParkingBrake)
+            {
+                rb.AddForce(-Vector3.ClampMagnitude(drift / Time.fixedDeltaTime, ServiceBrakeAcceleration), ForceMode.Acceleration);
+            }
+        }
+
+        private void SetParkingLock(bool locked)
+        {
+            if (parkingLocked == locked) return;
+            Rigidbody rb = Body;
+            if (locked)
+            {
+                originalConstraints = rb.constraints;
+                rb.linearVelocity = Vector3.Project(rb.linearVelocity, Vector3.up);
+                rb.constraints = originalConstraints | ParkingConstraints;
+            }
+            else
+            {
+                rb.constraints = originalConstraints;
+            }
+            parkingLocked = locked;
+        }
+
+        private void OnDisable() => SetParkingLock(false);
 
         internal void CopySimulationSettings(VehiclePhysics source, VehicleDrive drive)
         {
@@ -178,6 +233,8 @@ namespace MadMachines
             Quaternion rotation = Body.rotation;
             Vector3 up = rotation * Vector3.up;
             Vector3 forwardAxis = rotation * Vector3.forward;
+            bool serviceBrake = command.BrakeBeforeReversing &&
+                Vector3.Dot(Body.linearVelocity, forwardAxis) * command.Throttle < -ParkingSpeed;
             Matrix4x4 localToWorld = Matrix4x4.TRS(Body.position, rotation, transform.lossyScale);
             float supportTotal = 0f;
             float driveTotal = 0f;
@@ -240,6 +297,12 @@ namespace MadMachines
                     float driveShare = driveTotal > 0f ? DriveWeight(wheel, front, rear) / driveTotal : 0f;
                     float drive = command.Throttle * engineForce * driveShare
                         * Mathf.Clamp01(1f - Mathf.Abs(forwardSpeed) / 32f);
+                    if (serviceBrake)
+                    {
+                        float brakeShare = brakeTotal > 0f ? wheel.BrakeWeight / brakeTotal : share;
+                        float acceleration = Mathf.Clamp(-forwardSpeed / step, -ServiceBrakeAcceleration, ServiceBrakeAcceleration);
+                        drive = acceleration * Body.mass * brakeShare;
+                    }
                     if (command.Handbrake && brakeTotal > 0f)
                     {
                         drive -= forwardSpeed * Body.mass * 1.5f * wheel.BrakeWeight / brakeTotal * 4f;
@@ -355,6 +418,7 @@ namespace MadMachines
 
         public void Recover(Vector3 position, Quaternion rotation)
         {
+            SetParkingLock(false);
             Body.position = position;
             Body.rotation = rotation;
             Body.linearVelocity = Vector3.zero;

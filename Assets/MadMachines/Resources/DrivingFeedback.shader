@@ -5,6 +5,7 @@ Shader "Mad Machines/Driving Feedback"
         [HideInInspector] _Mode ("Mode", Float) = 0
         [HideInInspector] _TrackTime ("Track time", Float) = 0
         [HideInInspector] _TrackLifetime ("Track lifetime", Float) = 1
+        [HideInInspector] _DstBlend ("Destination blend", Float) = 10
     }
 
     SubShader
@@ -13,7 +14,7 @@ Shader "Mad Machines/Driving Feedback"
         Pass
         {
             Tags { "LightMode" = "SRPDefaultUnlit" }
-            Blend SrcAlpha OneMinusSrcAlpha
+            Blend SrcAlpha [_DstBlend]
             Cull Off
             ZWrite Off
 
@@ -58,11 +59,46 @@ Shader "Mad Machines/Driving Feedback"
                 return output;
             }
 
+            float EffectHash(float2 point)
+            {
+                float3 p = frac(point.xyx * 0.1031);
+                p += dot(p, p.yzx + 33.33);
+                return frac((p.x + p.y) * p.z);
+            }
+
+            float CloudNoise(float2 point)
+            {
+                float2 cell = floor(point);
+                float2 f = frac(point);
+                f = f * f * (3.0 - 2.0 * f);
+                return lerp(lerp(EffectHash(cell), EffectHash(cell + float2(1, 0)), f.x),
+                    lerp(EffectHash(cell + float2(0, 1)), EffectHash(cell + 1.0), f.x), f.y);
+            }
+
             half4 Frag(Varyings input) : SV_Target
             {
                 float2 uv = input.uv;
                 half opacity;
-                if (_Mode > 2.5)
+                half3 color = input.color.rgb;
+                if (_Mode > 4.5)
+                {
+                    float2 p = uv * 2.0 - 1.0;
+                    float noise = CloudNoise(p * 4.5) * 0.7 + CloudNoise(p * 13.0) * 0.3;
+                    opacity = 1.0 - smoothstep(0.15, 0.95, length(p) + (noise - 0.44) * 0.64);
+                    color *= lerp(0.65, 1.75, opacity * noise + opacity * 0.32);
+                }
+                else if (_Mode > 3.5)
+                {
+                    float along = 1.0 - uv.x;
+                    float width = lerp(0.09, 0.95, smoothstep(0.0, 0.3, along)) * pow(max(0.0, 1.0 - along), 0.78);
+                    float across = abs(uv.y * 2.0 - 1.0);
+                    float streaks = lerp(0.6, 1.25, CloudNoise(float2(along * 11.0, uv.y * 8.0)));
+                    float core = 1.0 - smoothstep(0.0, 0.25, across / max(width, 0.01));
+                    opacity = (1.0 - smoothstep(width * 0.16, width + 0.02, across)) *
+                        (1.0 - along * along) * streaks;
+                    color = lerp(color * 1.6, half3(3.3, 2.65, 1.55), core);
+                }
+                else if (_Mode > 2.5)
                 {
                     float variation = sin(uv.x * 32.0 - _Time.y * 13.0);
                     float across = abs(uv.y * 2.0 - 1.0 + variation * 0.24);
@@ -70,14 +106,17 @@ Shader "Mad Machines/Driving Feedback"
                 }
                 else if (_Mode > 1.5)
                 {
-                    opacity = 1.0 - smoothstep(0.2, 1.0, abs(uv.y * 2.0 - 1.0));
+                    float across = abs(uv.y * 2.0 - 1.0);
+                    opacity = 1.0 - smoothstep(0.12, 1.0, across);
+                    color *= lerp(1.15, 2.8, 1.0 - smoothstep(0.0, 0.48, across));
                 }
                 else if (_Mode > 0.5)
                 {
                     float2 p = uv * 2.0 - 1.0;
-                    float r = dot(p, p);
-                    float lobes = 0.047 * sin(p.x * 9.0 + p.y * 4.0) + 0.038 * cos(p.y * 13.0 - p.x * 5.0);
-                    opacity = 1.0 - smoothstep(0.04, 0.84, r + lobes);
+                    float noise = CloudNoise(p * 4.0) * 0.73 + CloudNoise(p * 10.0) * 0.27;
+                    opacity = (1.0 - smoothstep(0.16, 0.98, length(p) + (noise - 0.47) * 0.58)) *
+                        lerp(0.49, 1.0, noise);
+                    color *= lerp(0.58, 1.13, noise);
                 }
                 else
                 {
@@ -87,7 +126,10 @@ Shader "Mad Machines/Driving Feedback"
                     float tread = 1.0 - smoothstep(0.29, 0.43, groove);
                     opacity = edge * lerp(0.47, 1.0, tread);
                 }
-                return half4(MixFog(input.color.rgb, input.fog), input.color.a * opacity * input.visibility);
+                // Additive effects fade into the background without adding the fog color.
+                bool additive = (_Mode > 1.5 && _Mode < 2.5) || _Mode > 3.5;
+                half3 fog = additive ? half3(0, 0, 0) : half3(unity_FogColor.rgb);
+                return half4(MixFogColor(color, fog, input.fog), input.color.a * opacity * input.visibility);
             }
             ENDHLSL
         }

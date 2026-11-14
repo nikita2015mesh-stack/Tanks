@@ -126,6 +126,12 @@ namespace MadMachines
                 : $"{PlaygroundText.Seconds(rules.Elapsed)}   •   Ворота {Mathf.Min(rules.NextCheckpoint + 1, rules.CheckpointCount)}/{rules.CheckpointCount}";
             GUI.Label(new Rect(35, 61, 340, 30), progress, text);
             GUI.Label(new Rect(35, 94, 340, 50), $"{vehicle.Speed:0} км/ч   •   {weapons.Current.Label}", text);
+            string brakeStatus = "P — стояночный тормоз";
+            if (vehicle.ParkingBrake)
+                brakeStatus = vehicle.IsHeld ? "Стояночный тормоз включён · P" : "Торможение до остановки · P";
+            else if (vehicle.IsHeld)
+                brakeStatus = "Автоудержание · W/S — тронуться";
+            GUI.Label(new Rect(35, 122, 340, 25), brakeStatus, small);
             bool hasAmmunitionChoice = weapons.Current.AmmunitionCount > 1;
             if (hasAmmunitionChoice)
             {
@@ -154,6 +160,11 @@ namespace MadMachines
         private void DrawRange(ShootingRange range, Camera view, float width, float height)
         {
             if (view == null || Event.current.type != EventType.Repaint) return;
+            if (range.RecoveredAtBoundary)
+            {
+                GUI.Box(new Rect(width * 0.5f - 144f, 28f, 288f, 34f), "");
+                GUI.Label(new Rect(width * 0.5f - 132f, 33f, 272f, 25f), "Возврат на рубеж с края полигона", small);
+            }
             if (range.LastImpact != null)
             {
                 GUI.Box(new Rect(width - 344, 20, 324, 74), "");

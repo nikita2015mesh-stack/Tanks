@@ -53,6 +53,9 @@ namespace MadMachines
             timedBounce = weapon.TimedBounce;
             color = weapon.Color;
             appearance = weapon.Appearance;
+            // Earlier assets used the default appearance for every projectile.
+            if (appearance == ProjectileAppearance.Grenade && !timedBounce)
+                appearance = blastRadius > 0f ? ProjectileAppearance.Shell : ProjectileAppearance.Bullet;
         }
     }
 }

@@ -20,25 +20,25 @@ namespace MadMachines
         private int sweepLayers;
         private Action<Collider, Vector3> finish;
         private Transform model;
+        private LineRenderer tracerLine;
+        private Vector3 launchPoint;
         private List<Collider> penetratedPlates;
 
         public static Projectile Launch(ProjectileDefinition definition, Vector3 position, Vector3 direction, VehiclePhysics owner, int shotId,
             bool tracer = false)
         {
-            GameObject shot = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            GameObject shot = new GameObject(definition.Label + " projectile") { layer = 2 };
             SceneManager.MoveGameObjectToScene(shot, owner.gameObject.scene);
-            shot.name = definition.Label + " projectile";
-            shot.layer = 2;
             shot.transform.position = position;
             shot.transform.localScale = Vector3.one * definition.Size * 2f;
-            if (definition.Appearance == ProjectileAppearance.Sphere)
-                shot.GetComponent<Renderer>().sharedMaterial = PlaygroundEffects.Material(definition.Color);
+            shot.AddComponent<SphereCollider>().radius = 0.5f;
             shot.AddComponent<Rigidbody>();
-            AddTrail(shot, definition, tracer);
+            AddTrail(shot, definition);
             Projectile projectile = shot.AddComponent<Projectile>();
             projectile.Initialize(definition, direction, owner, shotId);
             projectile.model = ProjectileVisual.Attach(shot, definition.Appearance);
             ProjectileVisual.PointAlong(projectile.model, projectile.body.linearVelocity);
+            if (tracer && !Application.isBatchMode) projectile.CreateTracer();
             return projectile;
         }
 
@@ -68,53 +68,56 @@ namespace MadMachines
                 Physics.IgnoreCollision(projectileCollider, collider);
             expires = Time.time + definition.Lifetime;
             previous = body.position;
+            launchPoint = previous;
         }
 
-        public static void AddTrail(GameObject shot, ProjectileDefinition definition, bool tracer = false)
+        public static void AddTrail(GameObject shot, ProjectileDefinition definition)
         {
-            if (Application.isBatchMode || (definition.Appearance == ProjectileAppearance.Bullet && !tracer)) return;
+            if (Application.isBatchMode || !definition.IsShell) return;
             DrivingEffects effects = DrivingEffects.In(shot.scene);
             TrailRenderer trail = shot.AddComponent<TrailRenderer>();
+            trail.sharedMaterial = effects.WakeMaterial;
             trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             trail.receiveShadows = false;
             trail.minVertexDistance = 0.08f;
 
-            Color tail;
-            if (definition.IsShell)
-            {
-                trail.sharedMaterial = effects.WakeMaterial;
-                bool penetrator = definition.Appearance == ProjectileAppearance.Penetrator;
-                tail = penetrator ? new Color(0.67f, 0.77f, 0.8f) : new Color(0.68f, 0.71f, 0.72f);
-                trail.startColor = new Color(tail.r, tail.g, tail.b, 0.35f);
-                trail.widthCurve = AnimationCurve.Linear(0f, 0.46f, 1f, 1f);
-                trail.widthMultiplier = penetrator ? 0.13f : 0.24f;
-                trail.time = penetrator ? 0.10f : 0.16f;
-            }
-            else if (definition.Appearance == ProjectileAppearance.Bullet)
-            {
-                trail.sharedMaterial = effects.TracerMaterial;
-                tail = new Color(1f, 0.33f, 0.14f);
-                trail.startColor = new Color(1f, 0.83f, 0.61f, 0.92f);
-                trail.startWidth = 0.032f;
-                trail.endWidth = 0.013f;
-                trail.time = 0.045f;
-            }
-            else
-            {
-                trail.sharedMaterial = effects.TracerMaterial;
-                tail = definition.Color;
-                trail.startColor = Color.Lerp(tail, Color.white, 0.4f);
-                trail.startWidth = Mathf.Clamp(definition.Size * 0.9f, 0.065f, 0.28f);
-                trail.endWidth = 0f;
-                trail.time = definition.Gravity ? 0.28f : 0.085f;
-            }
+            bool penetrator = definition.Appearance == ProjectileAppearance.Penetrator;
+            Color tail = penetrator ? new Color(0.67f, 0.77f, 0.8f) : new Color(0.68f, 0.71f, 0.72f);
+            trail.startColor = new Color(tail.r, tail.g, tail.b, 0.52f);
+            trail.widthCurve = AnimationCurve.Linear(0f, 0.5f, 1f, 1f);
+            trail.widthMultiplier = penetrator ? 0.16f : 0.28f;
+            trail.time = penetrator ? 0.12f : 0.20f;
             tail.a = 0f;
             trail.endColor = tail;
+        }
+
+        private void CreateTracer()
+        {
+            tracerLine = gameObject.AddComponent<LineRenderer>();
+            tracerLine.sharedMaterial = DrivingEffects.In(gameObject.scene).TracerMaterial;
+            tracerLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            tracerLine.receiveShadows = false;
+            tracerLine.startColor = new Color(1f, 0.26f, 0.06f, 0.04f);
+            tracerLine.endColor = new Color(1f, 0.78f, 0.38f, 1f);
+            tracerLine.startWidth = 0.026f;
+            tracerLine.endWidth = 0.092f;
+            tracerLine.useWorldSpace = true;
+            tracerLine.positionCount = 2;
+            tracerLine.SetPosition(0, launchPoint);
+            tracerLine.SetPosition(1, launchPoint);
         }
 
         private void LateUpdate()
         {
             if (model != null) ProjectileVisual.PointAlong(model, body.linearVelocity);
+            if (tracerLine != null)
+            {
+                Vector3 position = transform.position;
+                Vector3 direction = body.linearVelocity.normalized;
+                float length = Mathf.Clamp(Vector3.Dot(position - launchPoint, direction), 0f, 3.2f);
+                tracerLine.SetPosition(0, position - direction * length);
+                tracerLine.SetPosition(1, position);
+            }
         }
 
         private void FixedUpdate()

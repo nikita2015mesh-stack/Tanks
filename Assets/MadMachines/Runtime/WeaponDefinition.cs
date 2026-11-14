@@ -4,7 +4,7 @@ namespace MadMachines
 {
     public enum ProjectileAppearance
     {
-        Sphere,
+        Grenade,
         Bullet,
         Shell,
         Penetrator
